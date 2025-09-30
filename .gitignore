@@ -1,0 +1,75 @@
+# Azure Databricks Private Deployment - .gitignore
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows specific
+*.lnk
+
+# Editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+*.out
+
+# Azure CLI cache
+.azure/
+
+# Configuration files with sensitive data
+*.env
+.env.*
+config.local.json
+secrets.json
+
+# Generated deployment artifacts
+databricks-deployment.json
+databricks-india-deployment-*.txt
+
+# Terraform files (if used)
+*.tfstate
+*.tfstate.*
+.terraform/
+.terraform.lock.hcl
+
+# ARM template parameter files with sensitive data
+*.parameters.local.json
+
+# SSH keys
+*.pem
+*.key
+id_rsa*
+
+# Certificate files
+*.pfx
+*.p12
+*.crt
+*.cer
+
+# Backup files
+*.backup
+*.bak
+
+# Node modules (if any JavaScript tools are used)
+node_modules/
+
+# Python cache (if any Python tools are used)
+__pycache__/
+*.pyc
+*.pyo
+
+# Local test outputs
+test-results/
+coverage/
