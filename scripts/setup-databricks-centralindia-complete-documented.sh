@@ -1,76 +1,93 @@
 #!/bin/bash
 
 #############################################
-# Azure Databricks Private Network Setup - CENTRAL INDIA EDITION
-# Complete Implementation with Secure Cluster Connectivity (SCC)
+# AZURE DATABRICKS PRIVATE NETWORK DEPLOYMENT WITH ADLS GEN2
+# Complete Enterprise Solution for Central India Region
 # 
 # PURPOSE:
-# This script creates a completely private Azure Databricks environment
-# with no public internet exposure. All access is through private endpoints
-# and secure channels only.
+# This script creates a fully private Azure Databricks environment with
+# ADLS Gen2 storage, ensuring all data and compute remain within Azure's
+# backbone network with zero public internet exposure.
 #
 # ARCHITECTURE OVERVIEW:
-# ┌─────────────────────────────────────────────────────────────┐
-# │                        AZURE CENTRAL INDIA                   │
-# ├─────────────────────────────────────────────────────────────┤
-# │  ┌─────────────────────────────────────────────────────┐    │
-# │  │              VIRTUAL NETWORK (10.0.0.0/16)          │    │
-# │  ├─────────────────────────────────────────────────────┤    │
-# │  │                                                     │    │
-# │  │  ┌──────────────────┐    ┌──────────────────┐     │    │
-# │  │  │ Databricks Host  │    │ Databricks       │     │    │
-# │  │  │ Subnet           │    │ Container Subnet │     │    │
-# │  │  │ (10.0.1.0/24)    │    │ (10.0.2.0/24)    │     │    │
-# │  │  └──────────────────┘    └──────────────────┘     │    │
-# │  │                                                     │    │
-# │  │  ┌──────────────────┐    ┌──────────────────┐     │    │
-# │  │  │ Private Endpoint │    │ Backend PE       │     │    │
-# │  │  │ Subnet           │    │ Subnet           │     │    │
-# │  │  │ (10.0.3.0/24)    │    │ (10.0.4.0/24)    │     │    │
-# │  │  └──────────────────┘    └──────────────────┘     │    │
-# │  │                                                     │    │
-# │  │  ┌──────────────────┐    ┌──────────────────┐     │    │
-# │  │  │ Jump VM Subnet   │    │ Bastion Subnet   │     │    │
-# │  │  │ (10.0.5.0/24)    │    │ (10.0.6.0/26)    │     │    │
-# │  │  └──────────────────┘    └──────────────────┘     │    │
-# │  └─────────────────────────────────────────────────────┘    │
-# └─────────────────────────────────────────────────────────────┘
+# ┌─────────────────────────────────────────────────────────────────┐
+# │                   AZURE CENTRAL INDIA REGION                    │
+# ├─────────────────────────────────────────────────────────────────┤
+# │  ┌─────────────────────────────────────────────────────────┐   │
+# │  │              VIRTUAL NETWORK (10.0.0.0/16)              │   │
+# │  ├─────────────────────────────────────────────────────────┤   │
+# │  │                                                         │   │
+# │  │  ┌──────────────────┐    ┌──────────────────┐        │   │
+# │  │  │ Databricks Host  │    │ Databricks       │        │   │
+# │  │  │ Subnet           │    │ Container Subnet │        │   │
+# │  │  │ (10.0.1.0/24)    │    │ (10.0.2.0/24)    │        │   │
+# │  │  └──────────────────┘    └──────────────────┘        │   │
+# │  │           ↓                        ↓                   │   │
+# │  │  ┌──────────────────────────────────────────┐        │   │
+# │  │  │     Private Endpoints (10.0.3.0/24)      │        │   │
+# │  │  │  • Databricks UI/API  • Databricks Auth  │        │   │
+# │  │  │  • ADLS Blob          • ADLS DFS         │        │   │
+# │  │  └──────────────────────────────────────────┘        │   │
+# │  │           ↓                                           │   │
+# │  │  ┌──────────────────────────────────────────┐        │   │
+# │  │  │        AZURE BACKBONE NETWORK            │        │   │
+# │  │  └──────────────────────────────────────────┘        │   │
+# │  │           ↓                                           │   │
+# │  │  ┌──────────────────────────────────────────┐        │   │
+# │  │  │         ADLS Gen2 Storage Account        │        │   │
+# │  │  │  • /raw       • /processed               │        │   │
+# │  │  │  • /curated   • /sandbox    • /archive   │        │   │
+# │  │  └──────────────────────────────────────────┘        │   │
+# │  │                                                         │   │
+# │  │  ┌──────────────────┐    ┌──────────────────┐        │   │
+# │  │  │   Jump VM        │    │  Azure Bastion   │        │   │
+# │  │  │  (10.0.5.0/24)   │    │  (10.0.6.0/26)   │        │   │
+# │  │  └──────────────────┘    └──────────────────┘        │   │
+# │  └─────────────────────────────────────────────────────────┘   │
+# └─────────────────────────────────────────────────────────────────┘
 #
 # COMPONENTS CREATED:
 # 1. Resource Group - Logical container for all resources
-# 2. Virtual Network - Private network infrastructure
-# 3. 6 Subnets - Network segmentation for different components
-# 4. Network Security Groups - Firewall rules
-# 5. Databricks Workspace - The main analytics platform
-# 6. Private Endpoints - Secure connectivity points
-# 7. Private DNS Zones - Name resolution for private access
-# 8. Jump VM - Access point within the VNet
-# 9. Azure Bastion - Secure RDP/SSH gateway
+# 2. Virtual Network - Private network with 6 subnets
+# 3. Network Security Groups - Firewall rules for security
+# 4. Databricks Workspace - Premium tier with private endpoints
+# 5. ADLS Gen2 Storage - Hierarchical namespace enabled
+# 6. Private Endpoints - For Databricks and Storage
+# 7. Private DNS Zones - For name resolution
+# 8. Service Principal - For storage authentication
+# 9. Jump VM - Administrative access point
+# 10. Azure Bastion - Secure RDP/SSH gateway
 #
 # SECURITY FEATURES:
-# - No Public IPs on compute resources
-# - All traffic stays within Azure backbone
-# - Private endpoints for all connections
-# - Network isolation with NSGs
-# - Secure Cluster Connectivity (SCC) enabled
+# • No public IPs on any compute resources
+# • All traffic flows through Azure backbone
+# • Private endpoints for all services
+# • Network isolation with NSGs
+# • Secure Cluster Connectivity (SCC) enabled
+# • Storage firewall with private access only
+# • Service principal authentication for storage
 #
-# Author: Azure Databricks Implementation Team
-# Version: 3.0 - Production Ready with Full Documentation
+# Author: Shaleen Wonder Enterprise
+# Version: 2.0.0 - Production Ready with ADLS Gen2
 # Date: 2025-01-30
-# Region: Central India (Mumbai)
+# Repository: https://github.com/shaleen-wonder-ent/AzDatabricks_Private_deployment
 #############################################
 
 # Exit on any error - ensures script stops if something fails
 set -e
 
-# Color codes for terminal output - improves readability
+# ============================================
+# SECTION 1: CONFIGURATION AND SETUP
+# ============================================
+
+# Color codes for better output readability
 RED='\033[0;31m'     # Error messages
 GREEN='\033[0;32m'   # Success messages
 YELLOW='\033[1;33m'  # Warning messages
 BLUE='\033[0;34m'    # Information messages
 NC='\033[0m'         # No Color - reset to default
 
-# Helper functions for consistent output formatting throughout the script
+# Helper functions for consistent output formatting
 print_status() {
     # Print success messages with green checkmark
     echo -e "${GREEN}[✓]${NC} $1"
@@ -99,104 +116,77 @@ print_header() {
     echo "========================================="
 }
 
-#############################################
+# ============================================
 # CONFIGURATION VARIABLES
 # 
-# These variables define your entire infrastructure.
-# Modify these according to your naming conventions and requirements.
+# These define your entire infrastructure.
+# Modify these according to your requirements.
 # Using environment variables allows override without editing script.
-#
-# WHY CENTRAL INDIA?
-# - Lower latency for India-based users
-# - Data residency compliance for Indian regulations
-# - Generally better availability than crowded US regions
-# - Cost-effective for Indian businesses
-#############################################
+# ============================================
 
 # Azure Region - Central India (Mumbai datacenter)
-# Other India options: southindia (Chennai), westindia (Mumbai - different zone)
+# WHY CENTRAL INDIA: Lower latency for India users, data residency compliance
 export LOCATION="${LOCATION:-centralindia}"
 
 # Resource Group - Container for all resources
 # Naming convention: rg-<service>-<environment>-<region>
-export RG_NAME="${RG_NAME:-rg-databricks-private-india}"
+export RESOURCE_GROUP="${RESOURCE_GROUP:-rg-databricks-private-india}"
 
-# Virtual Network - The private network infrastructure
-# Naming convention: vnet-<service>-<region>
+# Virtual Network Configuration
+# The foundation of network isolation
 export VNET_NAME="${VNET_NAME:-vnet-databricks-india}"
+export VNET_PREFIX="${VNET_PREFIX:-10.0.0.0/16}"  # 65,536 IP addresses
 
-# VNet Address Space - Must not overlap with other networks
-# Using 10.0.0.0/16 provides 65,536 IP addresses
-# Ensure this doesn't conflict with on-premises networks if using VPN/ExpressRoute
-export VNET_PREFIX="${VNET_PREFIX:-10.0.0.0/16}"
-
-# Databricks Workspace Name - Must be globally unique
-# Adding timestamp ensures uniqueness
+# Databricks Workspace Configuration
+# Must be globally unique, adding timestamp ensures uniqueness
 export WORKSPACE_NAME="${WORKSPACE_NAME:-dbw-private-india-$(date +%s)}"
 
-# Subnet Configurations
-# Each subnet serves a specific purpose in the architecture
+# ADLS Gen2 Storage Configuration
+# Storage account names must be globally unique, 3-24 chars, lowercase/numbers only
+TIMESTAMP=$(date +%s | tail -c 8)
+export STORAGE_ACCOUNT_NAME="${STORAGE_ACCOUNT_NAME:-adls${TIMESTAMP}}"
 
-# Databricks Host Subnet - Where Spark driver nodes run
-# Size: /24 = 256 IPs (Azure reserves 5, so 251 usable)
-export SUBNET_HOST="10.0.1.0/24"
+# Subnet Configurations - Each serves specific purpose
+export SUBNET_HOST="10.0.1.0/24"           # Databricks driver nodes (256 IPs)
+export SUBNET_CONTAINER="10.0.2.0/24"      # Databricks executor nodes (256 IPs)
+export SUBNET_PE="10.0.3.0/24"             # Private endpoints (256 IPs)
+export SUBNET_BACKEND_PE="10.0.4.0/24"     # Backend private endpoints for SCC (256 IPs)
+export SUBNET_JUMPBOX="10.0.5.0/24"        # Jump VM subnet (256 IPs)
+export SUBNET_BASTION="10.0.6.0/26"        # Azure Bastion (64 IPs - minimum required)
 
-# Databricks Container Subnet - Where Spark executor nodes run
-# Size: /24 = 256 IPs - Should be same size or larger than host subnet
-export SUBNET_CONTAINER="10.0.2.0/24"
-
-# Private Endpoint Subnet - Hosts private endpoints for workspace access
-# Size: /24 = 256 IPs - Usually only needs a few IPs
-export SUBNET_PE="10.0.3.0/24"
-
-# Backend Private Endpoint Subnet - For control-data plane communication
-# Size: /24 = 256 IPs - Used by SCC for backend connectivity
-export SUBNET_BACKEND_PE="10.0.4.0/24"
-
-# Jump VM Subnet - Hosts the Jump VM for administrative access
-# Size: /24 = 256 IPs - Usually only needs 1-2 VMs
-export SUBNET_JUMPBOX="10.0.5.0/24"
-
-# Bastion Subnet - MUST be named "AzureBastionSubnet" (Azure requirement)
-# Size: /26 minimum = 64 IPs (Azure Bastion requirement)
-export SUBNET_BASTION="10.0.6.0/26"
-
-# Jump VM and Bastion Configuration
+# VM and Bastion Configuration
 export VM_NAME="${VM_NAME:-vm-jumpbox-india}"
+export VM_ADMIN_USER="${VM_ADMIN_USER:-azureuser}"
+export VM_ADMIN_PASSWORD="${VM_ADMIN_PASSWORD:-SecurePass@India2025!}"  # CHANGE THIS IN PRODUCTION!
 export BASTION_NAME="${BASTION_NAME:-bastion-databricks-india}"
 
-# VM Credentials - CHANGE THESE IN PRODUCTION!
-# Use Azure Key Vault or Managed Identity in production
-VM_ADMIN_USER="azureuser"
-VM_ADMIN_PASSWORD="SecurePass@India2025!"  # MUST CHANGE!
+# Storage Containers - Following data lake best practices
+export STORAGE_CONTAINERS=("raw" "processed" "curated" "sandbox" "archive")
 
-#############################################
+# ============================================
 # PHASE 0: PREREQUISITES CHECK
 #
-# WHY: Before creating resources, we verify the environment is ready
+# WHY: Ensures environment is ready before creating resources
 # This prevents errors and wasted time/money from failed deployments
-#
-# CHECKS PERFORMED:
-# 1. Azure CLI installation - Required to run commands
-# 2. Azure authentication - Must be logged in
-# 3. Region availability - Ensures Central India is available
-# 4. Required extensions - Databricks extension needed
-# 5. Resource providers - Must be registered before use
-#############################################
+# ============================================
 
-print_header "Phase 0: Prerequisites Check"
+print_header "Phase 0: Prerequisites and Environment Check"
 
 # Check 1: Azure CLI Installation
-# The Azure CLI is our primary tool for creating resources
+# The Azure CLI is our primary tool for resource creation
 if ! command -v az &> /dev/null; then
     print_error "Azure CLI is not installed"
-    print_info "Install from: https://docs.microsoft.com/en-us/cli/azure/install-azure-cli"
+    print_info "Install from: https://docs.microsoft.com/cli/azure/install-azure-cli"
     exit 1
 fi
 print_status "Azure CLI is installed"
 
+# Check Azure CLI version (minimum 2.0 required)
+CLI_VERSION=$(az version --query '"azure-cli"' -o tsv)
+print_info "Azure CLI version: $CLI_VERSION"
+
 # Check 2: Azure Authentication
-# We need valid credentials to create resources
+# Valid credentials required to create resources
 if ! az account show &> /dev/null; then
     print_error "Not logged into Azure. Please run 'az login'"
     exit 1
@@ -205,9 +195,12 @@ fi
 # Get subscription details for confirmation and logging
 SUBSCRIPTION_NAME=$(az account show --query name -o tsv)
 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-print_status "Logged into subscription: $SUBSCRIPTION_NAME ($SUBSCRIPTION_ID)"
+TENANT_ID=$(az account show --query tenantId -o tsv)
+print_status "Logged into subscription: $SUBSCRIPTION_NAME"
+print_info "Subscription ID: $SUBSCRIPTION_ID"
+print_info "Tenant ID: $TENANT_ID"
 
-# Check 3: Verify Central India region is available
+# Check 3: Verify Central India region availability
 # Not all subscriptions have access to all regions
 print_info "Verifying Central India region availability..."
 if az account list-locations --query "[?name=='centralindia'].displayName" -o tsv | grep -q "Central India"; then
@@ -219,42 +212,41 @@ else
     exit 1
 fi
 
-# Check 4: Install/Update Databricks Extension
-# This extension provides Databricks-specific commands
-print_status "Installing/Updating Databricks extension..."
+# Check 4: Install/Update required extensions
+print_status "Installing/Updating Azure extensions..."
 az extension add --name databricks --upgrade --only-show-errors
+az extension add --name storage-preview --upgrade --only-show-errors 2>/dev/null || true
 
-# Check 5: Register Required Resource Providers
-# Resource providers must be registered before you can create resources of that type
-# This is a one-time operation per subscription
+# Check 5: Register required resource providers
+# Providers must be registered before creating resources (one-time per subscription)
 print_status "Registering required resource providers..."
+PROVIDERS=("Microsoft.Databricks" "Microsoft.Network" "Microsoft.Storage" "Microsoft.Compute")
+for provider in "${PROVIDERS[@]}"; do
+    print_info "Registering $provider..."
+    az provider register --namespace $provider --wait --only-show-errors
+done
 
-# Microsoft.Databricks - Enables Databricks workspace creation
-az provider register --namespace Microsoft.Databricks --wait --only-show-errors
+# Check 6: Verify quota availability
+print_info "Checking regional quotas..."
+VM_QUOTA=$(az vm list-usage --location $LOCATION --query "[?name.value=='cores'].currentValue" -o tsv 2>/dev/null || echo "0")
+print_info "Current vCPU usage in $LOCATION: $VM_QUOTA"
 
-# Microsoft.Network - Enables VNet, subnets, NSGs, etc.
-az provider register --namespace Microsoft.Network --wait --only-show-errors
-
-#############################################
+# ============================================
 # PHASE 1: RESOURCE GROUP CREATION
 #
-# WHY: Resource groups are logical containers for Azure resources
-# 
+# WHY: Resource groups are logical containers that hold related resources
 # BENEFITS:
-# - Organize resources by lifecycle, application, or environment
-# - Apply RBAC permissions at group level
+# - Organize resources by lifecycle
+# - Apply RBAC at group level
 # - Track costs per group
-# - Delete all resources by deleting the group
-#
-# IDEMPOTENCY: We check if it exists to avoid errors on re-run
-#############################################
+# - Easy cleanup (delete group = delete all resources)
+# ============================================
 
 print_header "Phase 1: Creating Resource Group"
 
-# Check if resource group already exists
-if az group show --name $RG_NAME &> /dev/null; then
-    print_warning "Resource group $RG_NAME already exists"
-    # Ask user to confirm they want to use existing group
+# Check if resource group exists (idempotency)
+if az group show --name $RESOURCE_GROUP &> /dev/null; then
+    print_warning "Resource group $RESOURCE_GROUP already exists"
     read -p "Do you want to continue using existing resource group? (y/n): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -263,146 +255,258 @@ if az group show --name $RG_NAME &> /dev/null; then
     fi
 else
     # Create new resource group
+    print_info "Creating resource group: $RESOURCE_GROUP"
     az group create \
-        --name $RG_NAME \
+        --name $RESOURCE_GROUP \
         --location $LOCATION \
+        --tags "Environment=Production" "Purpose=Databricks-Private" "Owner=$SUBSCRIPTION_NAME" \
         --only-show-errors
-    print_status "Resource group $RG_NAME created in $LOCATION"
+    print_status "Resource group created successfully"
 fi
 
-#############################################
+# ============================================
 # PHASE 2: VIRTUAL NETWORK AND SUBNETS
 #
-# WHY: The VNet provides network isolation and is the foundation
+# WHY: VNet provides network isolation and is the foundation
 # for private connectivity in Azure
 #
 # NETWORK DESIGN PRINCIPLES:
 # 1. Segmentation - Different subnets for different purposes
-# 2. Sizing - Subnets sized appropriately for expected usage
-# 3. Growth - Room for expansion within the address space
-# 4. Security - Network isolation between components
-#
-# SUBNET PURPOSES:
-# - Databricks subnets: Delegated to Microsoft.Databricks/workspaces
-# - Private endpoint subnets: Network policies disabled for PE creation
-# - Jump/Bastion subnets: For administrative access
-#############################################
+# 2. Sizing - Appropriately sized for expected growth
+# 3. Security - Network isolation between components
+# 4. Delegation - Some subnets delegated to specific services
+# ============================================
 
 print_header "Phase 2: Creating Virtual Network and Subnets"
 
 # Create or verify VNet exists
-if az network vnet show --resource-group $RG_NAME --name $VNET_NAME &> /dev/null; then
-    print_warning "VNet $VNET_NAME already exists, skipping VNet creation"
+if az network vnet show --resource-group $RESOURCE_GROUP --name $VNET_NAME &> /dev/null; then
+    print_warning "VNet $VNET_NAME already exists, skipping creation"
 else
-    print_status "Creating Virtual Network with address space $VNET_PREFIX..."
+    print_info "Creating Virtual Network with address space $VNET_PREFIX"
     az network vnet create \
-        --resource-group $RG_NAME \
+        --resource-group $RESOURCE_GROUP \
         --name $VNET_NAME \
         --address-prefix $VNET_PREFIX \
         --location $LOCATION \
+        --tags "Purpose=Databricks-Private-Network" \
         --only-show-errors
+    print_status "Virtual network created successfully"
 fi
 
-# Create all required subnets
-# Using a loop to reduce code duplication and ensure consistency
-# Format: subnet_name|address_prefix|delegation|disable_private_endpoint_policies
-
+# Create all required subnets with proper configuration
 print_info "Creating 6 subnets for different components..."
 
-for SUBNET_INFO in \
-    "snet-databricks-host|$SUBNET_HOST|Microsoft.Databricks/workspaces|false" \
-    "snet-databricks-container|$SUBNET_CONTAINER|Microsoft.Databricks/workspaces|false" \
-    "snet-private-endpoints|$SUBNET_PE||true" \
-    "snet-backend-private-endpoint|$SUBNET_BACKEND_PE||true" \
-    "snet-jumpbox|$SUBNET_JUMPBOX||false" \
-    "AzureBastionSubnet|$SUBNET_BASTION||false"; do
-    
+# Subnet configuration array
+# Format: subnet_name|address_prefix|delegation|disable_private_endpoint_policies
+SUBNET_CONFIGS=(
+    "snet-databricks-host|$SUBNET_HOST|Microsoft.Databricks/workspaces|false"
+    "snet-databricks-container|$SUBNET_CONTAINER|Microsoft.Databricks/workspaces|false"
+    "snet-private-endpoints|$SUBNET_PE||true"
+    "snet-backend-private-endpoint|$SUBNET_BACKEND_PE||true"
+    "snet-jumpbox|$SUBNET_JUMPBOX||false"
+    "AzureBastionSubnet|$SUBNET_BASTION||false"
+)
+
+for subnet_config in "${SUBNET_CONFIGS[@]}"; do
     # Parse subnet configuration
-    IFS='|' read -r SUBNET_NAME SUBNET_PREFIX DELEGATION DISABLE_PE <<< "$SUBNET_INFO"
+    IFS='|' read -r SUBNET_NAME SUBNET_PREFIX DELEGATION DISABLE_PE <<< "$subnet_config"
     
-    # Check if subnet already exists (idempotency)
-    if az network vnet subnet show --resource-group $RG_NAME --vnet-name $VNET_NAME --name $SUBNET_NAME &> /dev/null; then
+    # Check if subnet exists (idempotency)
+    if az network vnet subnet show --resource-group $RESOURCE_GROUP --vnet-name $VNET_NAME --name "$SUBNET_NAME" &> /dev/null; then
         print_warning "Subnet $SUBNET_NAME already exists, skipping"
     else
-        print_status "Creating subnet $SUBNET_NAME with prefix $SUBNET_PREFIX..."
+        print_info "Creating subnet: $SUBNET_NAME ($SUBNET_PREFIX)"
         
         # Create subnet with appropriate configuration
         if [[ -n "$DELEGATION" ]]; then
             # Delegated subnet (for Databricks)
-            # Delegation allows Azure services to deploy resources into the subnet
+            # Delegation allows Azure service to deploy resources into subnet
             az network vnet subnet create \
-                --resource-group $RG_NAME \
+                --resource-group $RESOURCE_GROUP \
                 --vnet-name $VNET_NAME \
-                --name $SUBNET_NAME \
-                --address-prefix $SUBNET_PREFIX \
-                --delegations $DELEGATION \
+                --name "$SUBNET_NAME" \
+                --address-prefix "$SUBNET_PREFIX" \
+                --delegations "$DELEGATION" \
                 --disable-private-endpoint-network-policies $DISABLE_PE \
                 --only-show-errors
         else
             # Regular subnet (for VMs, private endpoints, etc.)
             az network vnet subnet create \
-                --resource-group $RG_NAME \
+                --resource-group $RESOURCE_GROUP \
                 --vnet-name $VNET_NAME \
-                --name $SUBNET_NAME \
-                --address-prefix $SUBNET_PREFIX \
+                --name "$SUBNET_NAME" \
+                --address-prefix "$SUBNET_PREFIX" \
                 --disable-private-endpoint-network-policies $DISABLE_PE \
                 --only-show-errors
         fi
+        print_status "Subnet $SUBNET_NAME created"
     fi
 done
 
-#############################################
+# ============================================
 # PHASE 3: NETWORK SECURITY GROUPS
 #
-# WHY: NSGs act as virtual firewalls for your subnets
+# WHY: NSGs act as virtual firewalls for subnets
 # They control inbound and outbound traffic using security rules
 #
 # FOR DATABRICKS WITH SCC:
 # - We use "NoAzureDatabricksRules" mode
-# - This means we don't need the default Databricks NSG rules
-# - All communication happens through private endpoints
-# - You can add custom rules based on your security requirements
-#############################################
+# - No default Databricks NSG rules needed
+# - All communication through private endpoints
+# ============================================
 
-print_header "Phase 3: Creating Network Security Groups"
+print_header "Phase 3: Creating and Configuring Network Security Groups"
 
-# Create NSG if it doesn't exist
-if az network nsg show --resource-group $RG_NAME --name "nsg-databricks" &> /dev/null; then
-    print_warning "NSG nsg-databricks already exists, skipping"
+# Create NSG for Databricks subnets
+NSG_DATABRICKS="nsg-databricks"
+if az network nsg show --resource-group $RESOURCE_GROUP --name $NSG_DATABRICKS &> /dev/null; then
+    print_warning "NSG $NSG_DATABRICKS already exists"
 else
-    print_status "Creating Network Security Group..."
-    # NSG created empty - rules can be added based on requirements
+    print_info "Creating Network Security Group for Databricks"
     az network nsg create \
-        --resource-group $RG_NAME \
-        --name "nsg-databricks" \
+        --resource-group $RESOURCE_GROUP \
+        --name $NSG_DATABRICKS \
         --location $LOCATION \
+        --tags "Purpose=Databricks-Security" \
         --only-show-errors
+    print_status "NSG created"
 fi
 
 # Associate NSG with Databricks subnets
-# This applies the security rules to all resources in these subnets
-print_status "Associating NSG with Host subnet..."
+print_info "Associating NSG with Databricks subnets..."
+for subnet in "snet-databricks-host" "snet-databricks-container"; do
+    az network vnet subnet update \
+        --resource-group $RESOURCE_GROUP \
+        --vnet-name $VNET_NAME \
+        --name $subnet \
+        --network-security-group $NSG_DATABRICKS \
+        --only-show-errors
+done
+print_status "NSG associated with Databricks subnets"
+
+# Create NSG for Bastion with required rules
+NSG_BASTION="nsg-bastion"
+print_info "Creating NSG for Azure Bastion..."
+if ! az network nsg show --resource-group $RESOURCE_GROUP --name $NSG_BASTION &> /dev/null; then
+    az network nsg create \
+        --resource-group $RESOURCE_GROUP \
+        --name $NSG_BASTION \
+        --location $LOCATION \
+        --only-show-errors
+    
+    # Add required inbound rules for Bastion
+    print_info "Adding Bastion NSG inbound rules..."
+    
+    # Allow HTTPS from Internet
+    az network nsg rule create \
+        --resource-group $RESOURCE_GROUP \
+        --nsg-name $NSG_BASTION \
+        --name AllowHttpsInbound \
+        --priority 120 \
+        --direction Inbound \
+        --access Allow \
+        --protocol Tcp \
+        --source-address-prefix Internet \
+        --source-port-range "*" \
+        --destination-address-prefix "*" \
+        --destination-port-range 443 \
+        --only-show-errors
+    
+    # Allow Gateway Manager
+    az network nsg rule create \
+        --resource-group $RESOURCE_GROUP \
+        --nsg-name $NSG_BASTION \
+        --name AllowGatewayManagerInbound \
+        --priority 130 \
+        --direction Inbound \
+        --access Allow \
+        --protocol Tcp \
+        --source-address-prefix GatewayManager \
+        --source-port-range "*" \
+        --destination-address-prefix "*" \
+        --destination-port-range 443 \
+        --only-show-errors
+    
+    # Allow Azure Load Balancer
+    az network nsg rule create \
+        --resource-group $RESOURCE_GROUP \
+        --nsg-name $NSG_BASTION \
+        --name AllowAzureLoadBalancerInbound \
+        --priority 140 \
+        --direction Inbound \
+        --access Allow \
+        --protocol Tcp \
+        --source-address-prefix AzureLoadBalancer \
+        --source-port-range "*" \
+        --destination-address-prefix "*" \
+        --destination-port-range 443 \
+        --only-show-errors
+    
+    # Allow Bastion Host Communication
+    az network nsg rule create \
+        --resource-group $RESOURCE_GROUP \
+        --nsg-name $NSG_BASTION \
+        --name AllowBastionHostCommunication \
+        --priority 150 \
+        --direction Inbound \
+        --access Allow \
+        --protocol "*" \
+        --source-address-prefix VirtualNetwork \
+        --source-port-range "*" \
+        --destination-address-prefix VirtualNetwork \
+        --destination-port-ranges 8080 5701 \
+        --only-show-errors
+    
+    # Add required outbound rules for Bastion
+    print_info "Adding Bastion NSG outbound rules..."
+    
+    # Allow SSH/RDP to VirtualNetwork
+    az network nsg rule create \
+        --resource-group $RESOURCE_GROUP \
+        --nsg-name $NSG_BASTION \
+        --name AllowSshRdpOutbound \
+        --priority 100 \
+        --direction Outbound \
+        --access Allow \
+        --protocol "*" \
+        --source-address-prefix "*" \
+        --source-port-range "*" \
+        --destination-address-prefix VirtualNetwork \
+        --destination-port-ranges 22 3389 \
+        --only-show-errors
+    
+    # Allow Azure Cloud
+    az network nsg rule create \
+        --resource-group $RESOURCE_GROUP \
+        --nsg-name $NSG_BASTION \
+        --name AllowAzureCloudOutbound \
+        --priority 110 \
+        --direction Outbound \
+        --access Allow \
+        --protocol Tcp \
+        --source-address-prefix "*" \
+        --source-port-range "*" \
+        --destination-address-prefix AzureCloud \
+        --destination-port-range 443 \
+        --only-show-errors
+    
+    print_status "Bastion NSG created and configured"
+fi
+
+# Associate Bastion NSG with subnet
 az network vnet subnet update \
-    --resource-group $RG_NAME \
+    --resource-group $RESOURCE_GROUP \
     --vnet-name $VNET_NAME \
-    --name "snet-databricks-host" \
-    --network-security-group "nsg-databricks" \
+    --name AzureBastionSubnet \
+    --network-security-group $NSG_BASTION \
     --only-show-errors
 
-print_status "Associating NSG with Container subnet..."
-az network vnet subnet update \
-    --resource-group $RG_NAME \
-    --vnet-name $VNET_NAME \
-    --name "snet-databricks-container" \
-    --network-security-group "nsg-databricks" \
-    --only-show-errors
-
-#############################################
+# ============================================
 # PHASE 4: DATABRICKS WORKSPACE CREATION
 #
-# WHY: The workspace is the core Databricks resource where users
-# create notebooks, run jobs, and analyze data
-#
+# WHY: The workspace is the core Databricks resource
+# 
 # KEY CONFIGURATIONS FOR PRIVATE SETUP:
 # 1. Premium SKU - Required for VNet injection and private link
 # 2. VNet Injection - Deploys compute into your VNet
@@ -410,30 +514,28 @@ az network vnet subnet update \
 # 4. publicNetworkAccess=Disabled - Blocks all public access
 # 5. requiredNsgRules=NoAzureDatabricksRules - For SCC mode
 #
-# ARM TEMPLATE APPROACH:
-# We use ARM templates for better control over configuration
-# CLI commands don't support all parameters we need
-#############################################
+# Using ARM template for better control over configuration
+# ============================================
 
 print_header "Phase 4: Creating Databricks Workspace"
 
-# Check if workspace already exists (idempotency)
-if az databricks workspace show --resource-group $RG_NAME --name $WORKSPACE_NAME &> /dev/null; then
+# Check if workspace exists (idempotency)
+if az databricks workspace show --resource-group $RESOURCE_GROUP --name $WORKSPACE_NAME &> /dev/null; then
     print_warning "Databricks workspace $WORKSPACE_NAME already exists"
     WORKSPACE_EXISTS=true
 else
     WORKSPACE_EXISTS=false
 fi
 
-# Get VNet resource ID for the ARM template
-VNET_ID=$(az network vnet show --resource-group $RG_NAME --name $VNET_NAME --query id -o tsv)
+# Get VNet resource ID for ARM template
+VNET_ID=$(az network vnet show --resource-group $RESOURCE_GROUP --name $VNET_NAME --query id -o tsv)
+print_info "VNet Resource ID: $VNET_ID"
 
 if [ "$WORKSPACE_EXISTS" = false ]; then
-    print_status "Creating ARM template for Databricks workspace..."
+    print_info "Creating ARM template for Databricks workspace..."
     
     # Create ARM template with all required configurations
-    # This template defines the Databricks workspace with private networking
-    cat > databricks-deployment.json << EOF
+    cat > /tmp/databricks-deployment.json << EOF
 {
   "\$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
@@ -448,8 +550,6 @@ if [ "$WORKSPACE_EXISTS" = false ]; then
     }
   },
   "variables": {
-    // Managed resource group is created automatically by Azure
-    // It contains Databricks-managed resources like storage accounts
     "managedResourceGroupName": "[concat('databricks-rg-', parameters('workspaceName'), '-', uniqueString(parameters('workspaceName'), resourceGroup().id))]"
   },
   "resources": [
@@ -459,42 +559,31 @@ if [ "$WORKSPACE_EXISTS" = false ]; then
       "name": "[parameters('workspaceName')]",
       "location": "[parameters('location')]",
       "sku": {
-        // Premium SKU required for:
-        // - VNet injection
-        // - Private link support
-        // - Advanced security features
         "name": "premium"
       },
       "properties": {
         "managedResourceGroupId": "[subscriptionResourceId('Microsoft.Resources/resourceGroups', variables('managedResourceGroupName'))]",
         "parameters": {
-          // VNet injection configuration
           "customVirtualNetworkId": {
             "value": "$VNET_ID"
           },
-          // Specify which subnets Databricks should use
           "customPublicSubnetName": {
             "value": "snet-databricks-host"
           },
           "customPrivateSubnetName": {
             "value": "snet-databricks-container"
           },
-          // CRITICAL: No public IPs on compute resources
           "enableNoPublicIp": {
             "value": true
           },
-          // Infrastructure encryption (optional, disabled for simplicity)
           "requireInfrastructureEncryption": {
             "value": false
           },
-          // Storage account type for workspace storage
           "storageAccountSkuName": {
             "value": "Standard_LRS"
           }
         },
-        // CRITICAL: Disable all public network access
         "publicNetworkAccess": "Disabled",
-        // No default NSG rules needed with SCC
         "requiredNsgRules": "NoAzureDatabricksRules"
       }
     }
@@ -508,102 +597,91 @@ if [ "$WORKSPACE_EXISTS" = false ]; then
 }
 EOF
 
-    print_status "Deploying Databricks workspace..."
+    print_info "Deploying Databricks workspace..."
     print_warning "This operation typically takes 10-15 minutes..."
     
     DEPLOYMENT_NAME="databricks-deployment-$(date +%s)"
     
     # Deploy the ARM template
     az deployment group create \
-        --resource-group $RG_NAME \
+        --resource-group $RESOURCE_GROUP \
         --name $DEPLOYMENT_NAME \
-        --template-file databricks-deployment.json \
+        --template-file /tmp/databricks-deployment.json \
         --parameters workspaceName=$WORKSPACE_NAME location=$LOCATION \
         --only-show-errors
     
     print_status "Databricks workspace created successfully!"
     
     # Clean up template file
-    rm -f databricks-deployment.json
+    rm -f /tmp/databricks-deployment.json
 fi
 
-# Wait for workspace to be fully ready
+# Wait for workspace to be ready
 sleep 10
 
-#############################################
+# ============================================
 # PHASE 5: CONFIGURE SECURE CLUSTER CONNECTIVITY
 #
-# WHY: SCC enables the Databricks control plane to communicate
-# with the data plane (your VNet) without using public IPs
+# WHY: SCC enables control plane to communicate with data plane
+# without using public IPs
 #
 # HOW IT WORKS:
 # - Control plane initiates connection through Azure backbone
 # - No inbound connections from internet required
 # - All traffic stays within Microsoft network
-#
-# AUTOMATIC ENABLEMENT:
-# SCC is automatically enabled when:
-# - enableNoPublicIp = true
-# - publicNetworkAccess = Disabled
-#############################################
+# ============================================
 
-print_header "Phase 5: Configuring Secure Cluster Connectivity"
+print_header "Phase 5: Configuring Secure Cluster Connectivity (SCC)"
 
-# Get the backend subnet ID for reference
+# Get backend subnet ID for reference
 BACKEND_SUBNET_ID=$(az network vnet subnet show \
-    --resource-group $RG_NAME \
+    --resource-group $RESOURCE_GROUP \
     --vnet-name $VNET_NAME \
     --name "snet-backend-private-endpoint" \
     --query id -o tsv)
 
-print_status "Backend subnet prepared for SCC: $BACKEND_SUBNET_ID"
+print_info "Backend subnet prepared for SCC: $BACKEND_SUBNET_ID"
 
 # Verify workspace configuration
 WORKSPACE_CONFIG=$(az databricks workspace show \
-    --resource-group $RG_NAME \
+    --resource-group $RESOURCE_GROUP \
     --name $WORKSPACE_NAME \
     --query "{PublicAccess:publicNetworkAccess, NoPublicIP:parameters.enableNoPublicIp.value}" \
     -o json)
 
-print_status "Workspace configuration verified: $WORKSPACE_CONFIG"
-print_info "SCC is enabled through workspace configuration"
+print_status "Workspace configuration verified"
+print_info "SCC is enabled through workspace configuration: $WORKSPACE_CONFIG"
 
-#############################################
+# ============================================
 # PHASE 6: FRONTEND PRIVATE ENDPOINTS
 #
-# WHY: Private endpoints provide secure connectivity to the
-# Databricks control plane without going over public internet
+# WHY: Private endpoints provide secure connectivity to
+# Databricks control plane without public internet
 #
-# TWO TYPES OF FRONTEND ENDPOINTS:
-#
-# 1. databricks_ui_api:
-#    - Used for workspace UI access
-#    - Used for REST API calls
-#    - Main endpoint for user and programmatic interaction
-#
-# 2. browser_authentication:
-#    - Used for Azure AD authentication flows
-#    - Handles SSO and browser-based auth
-#    - Required for web authentication scenarios
-#############################################
+# TWO TYPES:
+# 1. databricks_ui_api - For workspace UI and REST API
+# 2. browser_authentication - For Azure AD authentication
+# ============================================
 
 print_header "Phase 6: Creating Frontend Private Endpoints"
 
-# Get workspace resource ID for private endpoint creation
+# Get workspace resource ID
 WORKSPACE_ID=$(az databricks workspace show \
-    --resource-group $RG_NAME \
+    --resource-group $RESOURCE_GROUP \
     --name $WORKSPACE_NAME \
     --query id -o tsv)
 
+print_info "Workspace Resource ID: $WORKSPACE_ID"
+
 # Create UI/API Private Endpoint
-if az network private-endpoint show --resource-group $RG_NAME --name "pe-databricks-ui-api" &> /dev/null; then
-    print_warning "Private endpoint pe-databricks-ui-api already exists, skipping"
+if az network private-endpoint show --resource-group $RESOURCE_GROUP --name "pe-databricks-ui-api" &> /dev/null; then
+    print_warning "Private endpoint pe-databricks-ui-api already exists"
 else
-    print_status "Creating Private Endpoint for UI/API access..."
+    print_info "Creating Private Endpoint for UI/API access..."
     print_info "This endpoint handles workspace UI and REST API requests"
     
     az network private-endpoint create \
-        --resource-group $RG_NAME \
+        --resource-group $RESOURCE_GROUP \
         --name "pe-databricks-ui-api" \
         --vnet-name $VNET_NAME \
         --subnet "snet-private-endpoints" \
@@ -612,17 +690,19 @@ else
         --connection-name "connection-databricks-ui-api" \
         --location $LOCATION \
         --only-show-errors
+    
+    print_status "UI/API private endpoint created"
 fi
 
-# Create Auth Private Endpoint
-if az network private-endpoint show --resource-group $RG_NAME --name "pe-databricks-auth" &> /dev/null; then
-    print_warning "Private endpoint pe-databricks-auth already exists, skipping"
+# Create Authentication Private Endpoint
+if az network private-endpoint show --resource-group $RESOURCE_GROUP --name "pe-databricks-auth" &> /dev/null; then
+    print_warning "Private endpoint pe-databricks-auth already exists"
 else
-    print_status "Creating Private Endpoint for Browser Authentication..."
+    print_info "Creating Private Endpoint for Browser Authentication..."
     print_info "This endpoint handles Azure AD authentication flows"
     
     az network private-endpoint create \
-        --resource-group $RG_NAME \
+        --resource-group $RESOURCE_GROUP \
         --name "pe-databricks-auth" \
         --vnet-name $VNET_NAME \
         --subnet "snet-private-endpoints" \
@@ -631,35 +711,33 @@ else
         --connection-name "connection-databricks-auth" \
         --location $LOCATION \
         --only-show-errors
+    
+    print_status "Authentication private endpoint created"
 fi
 
-#############################################
+# ============================================
 # PHASE 7: BACKEND PRIVATE ENDPOINT FOR SCC
 #
-# WHY: The backend private endpoint enables secure communication
-# from the Databricks control plane to your data plane
+# WHY: Enables secure communication from Databricks control
+# plane to your data plane (compute resources)
 #
 # PURPOSE:
-# - Allows control plane to manage compute resources
+# - Allows control plane to manage compute
 # - Enables job submission and monitoring
-# - Provides secure channel for metadata operations
-#
-# NOTE: This may be automatically created by Azure Databricks
-# when SCC is enabled, but we attempt to create it explicitly
-#############################################
+# - Provides secure channel for metadata
+# ============================================
 
 print_header "Phase 7: Creating Backend Private Endpoint for SCC"
 
-if az network private-endpoint show --resource-group $RG_NAME --name "pe-databricks-backend" &> /dev/null; then
-    print_warning "Backend private endpoint already exists, skipping"
+if az network private-endpoint show --resource-group $RESOURCE_GROUP --name "pe-databricks-backend" &> /dev/null; then
+    print_warning "Backend private endpoint already exists"
 else
-    print_status "Creating Backend Private Endpoint for SCC..."
+    print_info "Creating Backend Private Endpoint for SCC..."
     print_info "This enables secure control-to-data plane communication"
     
     # Attempt to create backend private endpoint
-    # This might fail if automatically created by Databricks
     az network private-endpoint create \
-        --resource-group $RG_NAME \
+        --resource-group $RESOURCE_GROUP \
         --name "pe-databricks-backend" \
         --vnet-name $VNET_NAME \
         --subnet "snet-backend-private-endpoint" \
@@ -669,74 +747,69 @@ else
         --location $LOCATION \
         --only-show-errors 2>/dev/null || {
             print_warning "Backend private endpoint may be automatically managed by Databricks"
-            print_status "SCC will function with the existing configuration"
+            print_info "SCC will function with existing configuration"
         }
 fi
 
-#############################################
-# PHASE 8: PRIVATE DNS ZONES
+# ============================================
+# PHASE 8: PRIVATE DNS ZONES FOR DATABRICKS
 #
 # WHY: Private DNS zones are essential for name resolution
 # in private network scenarios
 #
 # HOW IT WORKS:
-# 1. User accesses workspace URL (e.g., adb-xxx.azuredatabricks.net)
-# 2. Private DNS zone resolves this to private IP of the endpoint
-# 3. Traffic flows through private endpoint, not public internet
-#
-# REQUIRED ZONE:
-# - privatelink.azuredatabricks.net (exact name required)
-#############################################
+# 1. User accesses workspace URL
+# 2. Private DNS zone resolves to private IP
+# 3. Traffic flows through private endpoint
+# ============================================
 
-print_header "Phase 8: Configuring Private DNS Zones"
+print_header "Phase 8: Configuring Private DNS Zones for Databricks"
 
-# Create Private DNS Zone
-if az network private-dns zone show --resource-group $RG_NAME --name "privatelink.azuredatabricks.net" &> /dev/null; then
-    print_warning "Private DNS Zone already exists, skipping creation"
+# Create Private DNS Zone for Databricks
+DNS_ZONE_DATABRICKS="privatelink.azuredatabricks.net"
+
+if az network private-dns zone show --resource-group $RESOURCE_GROUP --name $DNS_ZONE_DATABRICKS &> /dev/null; then
+    print_warning "Private DNS Zone $DNS_ZONE_DATABRICKS already exists"
 else
-    print_status "Creating Private DNS Zone for Databricks..."
-    print_info "This zone handles name resolution for private endpoints"
-    
+    print_info "Creating Private DNS Zone for Databricks..."
     az network private-dns zone create \
-        --resource-group $RG_NAME \
-        --name "privatelink.azuredatabricks.net" \
+        --resource-group $RESOURCE_GROUP \
+        --name $DNS_ZONE_DATABRICKS \
         --only-show-errors
+    print_status "DNS zone created"
 fi
 
 # Link DNS Zone to VNet
-if az network private-dns link vnet show --resource-group $RG_NAME --zone-name "privatelink.azuredatabricks.net" --name "link-databricks-vnet" &> /dev/null; then
-    print_warning "DNS VNet link already exists, skipping"
+if az network private-dns link vnet show --resource-group $RESOURCE_GROUP --zone-name $DNS_ZONE_DATABRICKS --name "link-databricks-vnet" &> /dev/null; then
+    print_warning "DNS VNet link already exists"
 else
-    print_status "Linking DNS Zone to Virtual Network..."
-    print_info "This allows resources in the VNet to use this DNS zone"
-    
+    print_info "Linking DNS Zone to Virtual Network..."
     az network private-dns link vnet create \
-        --resource-group $RG_NAME \
-        --zone-name "privatelink.azuredatabricks.net" \
+        --resource-group $RESOURCE_GROUP \
+        --zone-name $DNS_ZONE_DATABRICKS \
         --name "link-databricks-vnet" \
         --virtual-network $VNET_NAME \
         --registration-enabled false \
         --only-show-errors
+    print_status "DNS zone linked to VNet"
 fi
 
 # Configure DNS records for private endpoints
-print_status "Creating DNS records for private endpoints..."
+print_info "Creating DNS records for Databricks private endpoints..."
 
-# Get workspace URL for DNS record creation
+# Get workspace URL
 WORKSPACE_URL=$(az databricks workspace show \
-    --resource-group $RG_NAME \
+    --resource-group $RESOURCE_GROUP \
     --name $WORKSPACE_NAME \
     --query workspaceUrl -o tsv)
 
 # Extract hostname from URL
 WORKSPACE_HOST="${WORKSPACE_URL%%.*}"
+print_info "Workspace hostname: $WORKSPACE_HOST"
 
 # UI/API endpoint DNS configuration
-print_info "Configuring DNS for UI/API endpoint..."
-
-# Get private IP of UI/API endpoint
 UI_API_PE_NIC_ID=$(az network private-endpoint show \
-    --resource-group $RG_NAME \
+    --resource-group $RESOURCE_GROUP \
     --name "pe-databricks-ui-api" \
     --query 'networkInterfaces[0].id' -o tsv)
 
@@ -746,14 +819,14 @@ UI_API_IP=$(az network nic show \
 
 # Create/update DNS A record for workspace
 az network private-dns record-set a create \
-    --resource-group $RG_NAME \
-    --zone-name "privatelink.azuredatabricks.net" \
+    --resource-group $RESOURCE_GROUP \
+    --zone-name $DNS_ZONE_DATABRICKS \
     --name "$WORKSPACE_HOST" \
     --only-show-errors 2>/dev/null || true
 
 az network private-dns record-set a add-record \
-    --resource-group $RG_NAME \
-    --zone-name "privatelink.azuredatabricks.net" \
+    --resource-group $RESOURCE_GROUP \
+    --zone-name $DNS_ZONE_DATABRICKS \
     --record-set-name "$WORKSPACE_HOST" \
     --ipv4-address $UI_API_IP \
     --only-show-errors 2>/dev/null || true
@@ -761,11 +834,8 @@ az network private-dns record-set a add-record \
 print_status "DNS record created: $WORKSPACE_HOST -> $UI_API_IP"
 
 # Auth endpoint DNS configuration
-print_info "Configuring DNS for authentication endpoint..."
-
-# Get private IP of Auth endpoint
 AUTH_PE_NIC_ID=$(az network private-endpoint show \
-    --resource-group $RG_NAME \
+    --resource-group $RESOURCE_GROUP \
     --name "pe-databricks-auth" \
     --query 'networkInterfaces[0].id' -o tsv)
 
@@ -775,64 +845,243 @@ AUTH_IP=$(az network nic show \
 
 # Create DNS record for auth endpoint
 az network private-dns record-set a create \
-    --resource-group $RG_NAME \
-    --zone-name "privatelink.azuredatabricks.net" \
+    --resource-group $RESOURCE_GROUP \
+    --zone-name $DNS_ZONE_DATABRICKS \
     --name "adb-auth-${WORKSPACE_HOST}" \
     --only-show-errors 2>/dev/null || true
 
 az network private-dns record-set a add-record \
-    --resource-group $RG_NAME \
-    --zone-name "privatelink.azuredatabricks.net" \
+    --resource-group $RESOURCE_GROUP \
+    --zone-name $DNS_ZONE_DATABRICKS \
     --record-set-name "adb-auth-${WORKSPACE_HOST}" \
     --ipv4-address $AUTH_IP \
     --only-show-errors 2>/dev/null || true
 
 print_status "DNS record created: adb-auth-${WORKSPACE_HOST} -> $AUTH_IP"
 
-#############################################
-# PHASE 9: JUMP VM CREATION
+# ============================================
+# PHASE 9: AZURE DATA LAKE STORAGE GEN2
 #
-# WHY: Since Databricks has no public access, we need a VM
-# inside the VNet to access the workspace
+# WHY: ADLS Gen2 serves as the primary data storage layer
+# for Databricks with hierarchical namespace for big data
+#
+# FEATURES:
+# - Hierarchical namespace (true directories)
+# - Private endpoints for secure access
+# - No public network access
+# - Service principal authentication
+# ============================================
+
+print_header "Phase 9: Creating Azure Data Lake Storage Gen2"
+
+# Ensure storage account name is valid (3-24 chars, lowercase, numbers only)
+STORAGE_ACCOUNT_NAME=$(echo "$STORAGE_ACCOUNT_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g' | cut -c1-24)
+print_info "Storage Account Name: $STORAGE_ACCOUNT_NAME"
+
+# Check if storage account exists
+if az storage account show --resource-group $RESOURCE_GROUP --name $STORAGE_ACCOUNT_NAME &> /dev/null; then
+    print_warning "Storage account $STORAGE_ACCOUNT_NAME already exists"
+else
+    print_info "Creating ADLS Gen2 Storage Account..."
+    print_info "This storage will only be accessible via private endpoints"
+    
+    az storage account create \
+        --name $STORAGE_ACCOUNT_NAME \
+        --resource-group $RESOURCE_GROUP \
+        --location $LOCATION \
+        --sku Standard_LRS \
+        --kind StorageV2 \
+        --hierarchical-namespace true \
+        --enable-https-traffic-only true \
+        --min-tls-version TLS1_2 \
+        --allow-blob-public-access false \
+        --public-network-access Disabled \
+        --default-action Deny \
+        --tags "Purpose=DataLake" "Environment=Production" \
+        --only-show-errors
+    
+    print_status "ADLS Gen2 storage account created with private access only"
+fi
+
+# Get storage account key for container creation
+print_info "Retrieving storage account key..."
+STORAGE_KEY=$(az storage account keys list \
+    --resource-group $RESOURCE_GROUP \
+    --account-name $STORAGE_ACCOUNT_NAME \
+    --query '[0].value' -o tsv)
+
+# Create storage containers following data lake best practices
+print_info "Creating data lake containers..."
+for container in "${STORAGE_CONTAINERS[@]}"; do
+    print_info "Creating container: $container"
+    az storage fs create \
+        --name $container \
+        --account-name $STORAGE_ACCOUNT_NAME \
+        --account-key "$STORAGE_KEY" \
+        --public-access off \
+        --only-show-errors 2>/dev/null || print_warning "Container $container might already exist"
+done
+print_status "Storage containers created: ${STORAGE_CONTAINERS[*]}"
+
+# Create Private Endpoints for Storage
+print_info "Creating private endpoints for ADLS Gen2..."
+
+STORAGE_RESOURCE_ID=$(az storage account show \
+    --resource-group $RESOURCE_GROUP \
+    --name $STORAGE_ACCOUNT_NAME \
+    --query id -o tsv)
+
+# Private endpoint for blob storage
+if ! az network private-endpoint show --resource-group $RESOURCE_GROUP --name "pe-adls-blob" &> /dev/null; then
+    print_info "Creating private endpoint for blob storage..."
+    az network private-endpoint create \
+        --resource-group $RESOURCE_GROUP \
+        --name "pe-adls-blob" \
+        --vnet-name $VNET_NAME \
+        --subnet "snet-private-endpoints" \
+        --private-connection-resource-id $STORAGE_RESOURCE_ID \
+        --group-id "blob" \
+        --connection-name "connection-adls-blob" \
+        --location $LOCATION \
+        --only-show-errors
+    print_status "Blob private endpoint created"
+fi
+
+# Private endpoint for DFS (Data Lake Storage)
+if ! az network private-endpoint show --resource-group $RESOURCE_GROUP --name "pe-adls-dfs" &> /dev/null; then
+    print_info "Creating private endpoint for DFS..."
+    az network private-endpoint create \
+        --resource-group $RESOURCE_GROUP \
+        --name "pe-adls-dfs" \
+        --vnet-name $VNET_NAME \
+        --subnet "snet-private-endpoints" \
+        --private-connection-resource-id $STORAGE_RESOURCE_ID \
+        --group-id "dfs" \
+        --connection-name "connection-adls-dfs" \
+        --location $LOCATION \
+        --only-show-errors
+    print_status "DFS private endpoint created"
+fi
+
+# Configure Private DNS for Storage
+print_info "Configuring private DNS for storage endpoints..."
+
+DNS_ZONES_STORAGE=("privatelink.blob.core.windows.net" "privatelink.dfs.core.windows.net")
+
+for zone in "${DNS_ZONES_STORAGE[@]}"; do
+    print_info "Processing DNS zone: $zone"
+    
+    # Create DNS zone if not exists
+    if ! az network private-dns zone show --resource-group $RESOURCE_GROUP --name $zone &> /dev/null; then
+        az network private-dns zone create \
+            --resource-group $RESOURCE_GROUP \
+            --name $zone \
+            --only-show-errors
+    fi
+    
+    # Link DNS zone to VNet if not exists
+    if ! az network private-dns link vnet show --resource-group $RESOURCE_GROUP --zone-name $zone --name "link-storage-vnet" &> /dev/null; then
+        az network private-dns link vnet create \
+            --resource-group $RESOURCE_GROUP \
+            --zone-name $zone \
+            --name "link-storage-vnet" \
+            --virtual-network $VNET_NAME \
+            --registration-enabled false \
+            --only-show-errors
+    fi
+done
+
+# Create DNS records for storage endpoints
+# Blob endpoint
+BLOB_PE_NIC_ID=$(az network private-endpoint show \
+    --resource-group $RESOURCE_GROUP \
+    --name "pe-adls-blob" \
+    --query 'networkInterfaces[0].id' -o tsv)
+
+BLOB_IP=$(az network nic show \
+    --ids $BLOB_PE_NIC_ID \
+    --query 'ipConfigurations[0].privateIPAddress' -o tsv)
+
+az network private-dns record-set a create \
+    --resource-group $RESOURCE_GROUP \
+    --zone-name "privatelink.blob.core.windows.net" \
+    --name $STORAGE_ACCOUNT_NAME \
+    --only-show-errors 2>/dev/null || true
+
+az network private-dns record-set a add-record \
+    --resource-group $RESOURCE_GROUP \
+    --zone-name "privatelink.blob.core.windows.net" \
+    --record-set-name $STORAGE_ACCOUNT_NAME \
+    --ipv4-address $BLOB_IP \
+    --only-show-errors 2>/dev/null || true
+
+# DFS endpoint
+DFS_PE_NIC_ID=$(az network private-endpoint show \
+    --resource-group $RESOURCE_GROUP \
+    --name "pe-adls-dfs" \
+    --query 'networkInterfaces[0].id' -o tsv)
+
+DFS_IP=$(az network nic show \
+    --ids $DFS_PE_NIC_ID \
+    --query 'ipConfigurations[0].privateIPAddress' -o tsv)
+
+az network private-dns record-set a create \
+    --resource-group $RESOURCE_GROUP \
+    --zone-name "privatelink.dfs.core.windows.net" \
+    --name $STORAGE_ACCOUNT_NAME \
+    --only-show-errors 2>/dev/null || true
+
+az network private-dns record-set a add-record \
+    --resource-group $RESOURCE_GROUP \
+    --zone-name "privatelink.dfs.core.windows.net" \
+    --record-set-name $STORAGE_ACCOUNT_NAME \
+    --ipv4-address $DFS_IP \
+    --only-show-errors 2>/dev/null || true
+
+print_status "Storage DNS configuration completed"
+
+# Create Service Principal for Databricks to access storage
+print_info "Creating Service Principal for storage access..."
+
+SP_NAME="sp-databricks-adls-${STORAGE_ACCOUNT_NAME}"
+SP_OUTPUT=$(az ad sp create-for-rbac \
+    --name $SP_NAME \
+    --role "Storage Blob Data Contributor" \
+    --scopes "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RESOURCE_GROUP/providers/Microsoft.Storage/storageAccounts/$STORAGE_ACCOUNT_NAME" \
+    --only-show-errors)
+
+CLIENT_ID=$(echo $SP_OUTPUT | jq -r '.appId')
+CLIENT_SECRET=$(echo $SP_OUTPUT | jq -r '.password')
+
+print_status "Service Principal created for storage access"
+print_warning "SAVE THE CLIENT SECRET - IT WON'T BE SHOWN AGAIN!"
+
+# ============================================
+# PHASE 10: JUMP VM CREATION
+#
+# WHY: Since Databricks has no public access, we need
+# a VM inside the VNet to access the workspace
 #
 # PURPOSE:
-# - Provides access point within the private network
-# - Used for administrative tasks
+# - Administrative access point
 # - Testing and troubleshooting
-#
-# VM SIZING STRATEGY:
-# - Start with smaller, cheaper sizes
-# - Try multiple sizes due to capacity constraints
-# - Use Spot instances as last resort
-#############################################
+# - Running Databricks CLI/SDK
+# ============================================
 
-print_header "Phase 9: Creating Jump VM"
+print_header "Phase 10: Creating Jump VM for Access"
 
 print_info "Jump VM provides access to private Databricks from within VNet"
 
 # Array of VM sizes to try (ordered by cost and availability)
-# B-series: Burstable, cost-effective for intermittent use
-# D-series: General purpose, good for consistent workloads
-VM_SIZES=(
-    "Standard_B2s"       # 2 vCPU, 4 GB RAM - Usually available
-    "Standard_B2ms"      # 2 vCPU, 8 GB RAM - Good alternative
-    "Standard_D2s_v5"    # 2 vCPU, 8 GB RAM - Latest generation
-    "Standard_D2s_v4"    # 2 vCPU, 8 GB RAM - Previous generation
-    "Standard_D2s_v3"    # 2 vCPU, 8 GB RAM - Widely available
-    "Standard_B1ms"      # 1 vCPU, 2 GB RAM - Minimal option
-    "Standard_D2as_v5"   # 2 vCPU, 8 GB RAM - AMD variant
-)
+VM_SIZES=("Standard_B2s" "Standard_B2ms" "Standard_D2s_v5" "Standard_D2s_v4" "Standard_D2s_v3" "Standard_B1ms" "Standard_D2as_v5")
 
 VM_CREATED=false
 
-print_info "Checking VM availability in Central India..."
-
-# Try each VM size until one succeeds
 for SIZE in "${VM_SIZES[@]}"; do
     print_info "Attempting VM creation with size: $SIZE"
     
     if az vm create \
-        --resource-group $RG_NAME \
+        --resource-group $RESOURCE_GROUP \
         --name $VM_NAME \
         --image Ubuntu2204 \
         --size $SIZE \
@@ -849,9 +1098,9 @@ for SIZE in "${VM_SIZES[@]}"; do
         print_status "Jump VM created successfully with size: $SIZE"
         
         # Install desktop environment for GUI access
-        print_info "Installing desktop environment (for browser access)..."
+        print_info "Installing desktop environment on Jump VM..."
         az vm run-command invoke \
-            --resource-group $RG_NAME \
+            --resource-group $RESOURCE_GROUP \
             --name $VM_NAME \
             --command-id RunShellScript \
             --scripts "sudo apt-get update && sudo apt-get install -y ubuntu-desktop firefox xrdp && sudo systemctl enable xrdp" \
@@ -864,13 +1113,11 @@ for SIZE in "${VM_SIZES[@]}"; do
     fi
 done
 
-# If regular VMs fail, try Spot instance
 if [ "$VM_CREATED" = false ]; then
     print_warning "Standard VM sizes unavailable, trying Spot instance..."
-    print_info "Spot VMs use unused capacity and are cheaper but can be evicted"
     
     if az vm create \
-        --resource-group $RG_NAME \
+        --resource-group $RESOURCE_GROUP \
         --name $VM_NAME \
         --image Ubuntu2204 \
         --priority Spot \
@@ -888,42 +1135,37 @@ if [ "$VM_CREATED" = false ]; then
         print_status "Spot VM created successfully"
     else
         print_error "Could not create Jump VM. Manual creation required."
-        print_info "Try creating via Azure Portal with different size/region"
     fi
 fi
 
-#############################################
-# PHASE 10: AZURE BASTION CREATION
+# ============================================
+# PHASE 11: AZURE BASTION CREATION
 #
-# WHY: Bastion provides secure RDP/SSH access without exposing
-# VMs to the public internet
+# WHY: Bastion provides secure RDP/SSH access without
+# exposing VMs to public internet
 #
 # BENEFITS:
 # - No public IPs needed on VMs
 # - Protection against port scanning
 # - Azure AD integration
-# - Session recording capabilities
 # - HTML5 browser-based access
-#
-# HOW IT WORKS:
-# Internet -> Bastion (Public IP) -> TLS/HTTPS -> Private VM
-#############################################
+# ============================================
 
-print_header "Phase 10: Creating Azure Bastion"
+print_header "Phase 11: Creating Azure Bastion"
 
-print_info "Bastion provides secure RDP/SSH access through the browser"
+print_info "Bastion provides secure RDP/SSH access through browser"
 
 # Check if Bastion already exists
-if az network bastion show --resource-group $RG_NAME --name $BASTION_NAME &> /dev/null; then
-    print_warning "Bastion already exists, skipping"
+if az network bastion show --resource-group $RESOURCE_GROUP --name $BASTION_NAME &> /dev/null; then
+    print_warning "Bastion already exists"
 else
     # Create public IP for Bastion (only public IP in architecture)
-    if ! az network public-ip show --resource-group $RG_NAME --name "pip-bastion" &> /dev/null; then
-        print_status "Creating public IP for Bastion..."
-        print_info "This is the only public IP in the architecture"
+    if ! az network public-ip show --resource-group $RESOURCE_GROUP --name "pip-bastion" &> /dev/null; then
+        print_info "Creating public IP for Bastion..."
+        print_info "This is the ONLY public IP in the entire architecture"
         
         az network public-ip create \
-            --resource-group $RG_NAME \
+            --resource-group $RESOURCE_GROUP \
             --name "pip-bastion" \
             --sku Standard \
             --location $LOCATION \
@@ -931,72 +1173,143 @@ else
     fi
     
     # Create Bastion host
-    print_status "Creating Azure Bastion..."
+    print_info "Creating Azure Bastion..."
     print_warning "This operation takes 5-10 minutes to complete"
-    print_info "Bastion will deploy in background, you can proceed with other tasks"
     
     az network bastion create \
         --name $BASTION_NAME \
         --public-ip-address "pip-bastion" \
-        --resource-group $RG_NAME \
+        --resource-group $RESOURCE_GROUP \
         --vnet-name $VNET_NAME \
         --location $LOCATION \
         --no-wait \
         --only-show-errors
     
-    print_info "Bastion deployment initiated"
+    print_info "Bastion deployment initiated in background"
 fi
 
-#############################################
-# PHASE 11: VALIDATION
+# ============================================
+# PHASE 12: CREATE DATABRICKS MOUNT SCRIPT
+#
+# WHY: Provides ready-to-use script for mounting
+# ADLS Gen2 in Databricks notebooks
+# ============================================
+
+print_header "Phase 12: Creating Databricks Configuration Scripts"
+
+# Create mount script for Databricks
+cat > databricks-mount-config.py << EOF
+# Databricks notebook source
+# ADLS Gen2 Mount Configuration for $STORAGE_ACCOUNT_NAME
+
+# COMMAND ----------
+# Storage configuration
+storage_account_name = "$STORAGE_ACCOUNT_NAME"
+client_id = "$CLIENT_ID"
+tenant_id = "$TENANT_ID"
+
+# COMMAND ----------
+# Create secret scope (run once)
+# databricks secrets create-scope --scope adls-scope
+
+# COMMAND ----------
+# Set the secret (run in Databricks CLI)
+# databricks secrets put --scope adls-scope --key client-secret
+
+# COMMAND ----------
+# OAuth configuration
+configs = {
+    "fs.azure.account.auth.type": "OAuth",
+    "fs.azure.account.oauth.provider.type": "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider",
+    "fs.azure.account.oauth2.client.id": client_id,
+    "fs.azure.account.oauth2.client.secret": dbutils.secrets.get(scope="adls-scope", key="client-secret"),
+    "fs.azure.account.oauth2.client.endpoint": f"https://login.microsoftonline.com/{tenant_id}/oauth2/token"
+}
+
+# COMMAND ----------
+# Mount points configuration
+mount_points = {
+    "/mnt/raw": f"abfss://raw@{storage_account_name}.dfs.core.windows.net/",
+    "/mnt/processed": f"abfss://processed@{storage_account_name}.dfs.core.windows.net/",
+    "/mnt/curated": f"abfss://curated@{storage_account_name}.dfs.core.windows.net/",
+    "/mnt/sandbox": f"abfss://sandbox@{storage_account_name}.dfs.core.windows.net/",
+    "/mnt/archive": f"abfss://archive@{storage_account_name}.dfs.core.windows.net/"
+}
+
+# COMMAND ----------
+# Mount all containers
+for mount_point, source in mount_points.items():
+    try:
+        dbutils.fs.mount(
+            source=source,
+            mount_point=mount_point,
+            extra_configs=configs
+        )
+        print(f"✅ Mounted {source} to {mount_point}")
+    except Exception as e:
+        if "already mounted" in str(e):
+            print(f"ℹ️ {mount_point} already mounted")
+        else:
+            print(f"❌ Error mounting {mount_point}: {str(e)}")
+
+# COMMAND ----------
+# List all mounts to verify
+display(dbutils.fs.mounts())
+
+# COMMAND ----------
+# Test access
+dbutils.fs.ls("/mnt/raw/")
+EOF
+
+print_status "Databricks mount configuration script created: databricks-mount-config.py"
+
+# ============================================
+# PHASE 13: VALIDATION AND SUMMARY
 #
 # WHY: Verify all components are properly configured
-# This helps identify any issues before users attempt access
-#
-# VALIDATIONS PERFORMED:
-# - Workspace configuration
-# - Private endpoint status
-# - Network configuration
-# - VM and Bastion status
-# - DNS records
-#############################################
+# and provide access information to user
+# ============================================
 
-print_header "Phase 11: Setup Validation"
+print_header "Phase 13: Deployment Validation and Summary"
 
 print_info "Validating all components..."
 
+# Workspace validation
 echo ""
 echo "Databricks Workspace:"
-echo "---------------------"
+echo "--------------------"
 az databricks workspace show \
-    --resource-group $RG_NAME \
+    --resource-group $RESOURCE_GROUP \
     --name $WORKSPACE_NAME \
     --query "{Name:name, URL:workspaceUrl, Status:provisioningState, PublicAccess:publicNetworkAccess}" \
     -o table
 
+# Private endpoints validation
 echo ""
 echo "Private Endpoints:"
 echo "-----------------"
 az network private-endpoint list \
-    --resource-group $RG_NAME \
+    --resource-group $RESOURCE_GROUP \
     --query "[].{Name:name, State:provisioningState, Connection:privateLinkServiceConnections[0].privateLinkServiceConnectionState.status}" \
     -o table
 
+# Storage validation
 echo ""
-echo "Network Subnets:"
-echo "----------------"
-az network vnet subnet list \
-    --resource-group $RG_NAME \
-    --vnet-name $VNET_NAME \
-    --query "[].{Name:name, AddressPrefix:addressPrefix, Delegation:delegations[0].serviceName}" \
+echo "Storage Account:"
+echo "---------------"
+az storage account show \
+    --resource-group $RESOURCE_GROUP \
+    --name $STORAGE_ACCOUNT_NAME \
+    --query "{Name:name, PublicAccess:publicNetworkAccess, Status:provisioningState}" \
     -o table
 
+# VM validation
 echo ""
 echo "Jump VM Status:"
-echo "---------------"
+echo "--------------"
 if [ "$VM_CREATED" = true ]; then
     az vm show \
-        --resource-group $RG_NAME \
+        --resource-group $RESOURCE_GROUP \
         --name $VM_NAME \
         --query "{Name:name, Status:powerState, Size:hardwareProfile.vmSize}" \
         -o table
@@ -1004,63 +1317,111 @@ else
     echo "No Jump VM created"
 fi
 
-echo ""
-echo "Bastion Status:"
-echo "---------------"
-az network bastion show \
-    --resource-group $RG_NAME \
-    --name $BASTION_NAME \
-    --query "{Name:name, Status:provisioningState}" \
-    -o table 2>/dev/null || echo "Bastion still deploying"
+# Save configuration to file
+CONFIG_FILE="databricks-deployment-config-$(date +%Y%m%d-%H%M%S).json"
+cat > $CONFIG_FILE << EOJSON
+{
+  "deployment": {
+    "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+    "subscription": "$SUBSCRIPTION_NAME",
+    "subscriptionId": "$SUBSCRIPTION_ID",
+    "resourceGroup": "$RESOURCE_GROUP",
+    "location": "$LOCATION"
+  },
+  "network": {
+    "vnet": "$VNET_NAME",
+    "addressSpace": "$VNET_PREFIX",
+    "subnets": {
+      "databricksHost": "$SUBNET_HOST",
+      "databricksContainer": "$SUBNET_CONTAINER",
+      "privateEndpoints": "$SUBNET_PE",
+      "backendPrivateEndpoint": "$SUBNET_BACKEND_PE",
+      "jumpbox": "$SUBNET_JUMPBOX",
+      "bastion": "$SUBNET_BASTION"
+    }
+  },
+  "databricks": {
+    "workspace": "$WORKSPACE_NAME",
+    "url": "https://$WORKSPACE_URL",
+    "publicAccess": "Disabled",
+    "sccEnabled": true
+  },
+  "storage": {
+    "accountName": "$STORAGE_ACCOUNT_NAME",
+    "containers": ["raw", "processed", "curated", "sandbox", "archive"],
+    "endpoints": {
+      "blob": "https://$STORAGE_ACCOUNT_NAME.blob.core.windows.net/",
+      "dfs": "https://$STORAGE_ACCOUNT_NAME.dfs.core.windows.net/"
+    },
+    "privateEndpoints": {
+      "blob": "pe-adls-blob ($BLOB_IP)",
+      "dfs": "pe-adls-dfs ($DFS_IP)"
+    }
+  },
+  "servicePrincipal": {
+    "name": "$SP_NAME",
+    "clientId": "$CLIENT_ID",
+    "tenantId": "$TENANT_ID"
+  },
+  "access": {
+    "jumpVM": "$VM_NAME",
+    "bastion": "$BASTION_NAME",
+    "username": "$VM_ADMIN_USER"
+  }
+}
+EOJSON
 
-echo ""
-echo "DNS Records:"
-echo "------------"
-az network private-dns record-set a list \
-    --resource-group $RG_NAME \
-    --zone-name "privatelink.azuredatabricks.net" \
-    --query "[].{Name:name, IP:aRecords[0].ipv4Address}" \
-    -o table
+# ============================================
+# DEPLOYMENT COMPLETE - DISPLAY SUMMARY
+# ============================================
 
-#############################################
-# COMPLETION AND SUMMARY
-#
-# Provide clear instructions for accessing the workspace
-# Save configuration for future reference
-#############################################
+print_header "🎉 Deployment Complete!"
 
-print_header "✅ Deployment Complete!"
+cat << END
 
-cat << EOF
-
-${GREEN}═══════════════════════════════════════════════════════════════${NC}
-${GREEN}  AZURE DATABRICKS PRIVATE SETUP - CENTRAL INDIA COMPLETE!     ${NC}
-${GREEN}═══════════════════════════════════════════════════════════════${NC}
+${GREEN}═══════════════════════════════════════════════════════════════════${NC}
+${GREEN}     AZURE DATABRICKS PRIVATE DEPLOYMENT - CENTRAL INDIA           ${NC}
+${GREEN}═══════════════════════════════════════════════════════════════════${NC}
 
 ${BLUE}📍 DEPLOYMENT SUMMARY:${NC}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Region:              ${GREEN}$LOCATION${NC}
-  Resource Group:      ${GREEN}$RG_NAME${NC}
+  Resource Group:      ${GREEN}$RESOURCE_GROUP${NC}
   Virtual Network:     ${GREEN}$VNET_NAME${NC}
-  Databricks:          ${GREEN}$WORKSPACE_NAME${NC}
-  Workspace URL:       ${GREEN}https://$WORKSPACE_URL${NC}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-${BLUE}🔒 SECURITY FEATURES ENABLED:${NC}
+${BLUE}🔧 DATABRICKS WORKSPACE:${NC}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Name:                ${GREEN}$WORKSPACE_NAME${NC}
+  URL:                 ${GREEN}https://$WORKSPACE_URL${NC}
+  Public Access:       ${GREEN}Disabled (Private Only)${NC}
+  SCC:                 ${GREEN}Enabled${NC}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${BLUE}💾 ADLS GEN2 STORAGE:${NC}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Account:             ${GREEN}$STORAGE_ACCOUNT_NAME${NC}
+  Containers:          ${GREEN}raw, processed, curated, sandbox, archive${NC}
+  Access:              ${GREEN}Private Endpoints Only${NC}
+  Service Principal:   ${GREEN}$CLIENT_ID${NC}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${BLUE}🔒 SECURITY FEATURES:${NC}
   ✅ No public IPs on compute resources
-  ✅ Public network access disabled
-  ✅ All traffic through private endpoints
-  ✅ Secure Cluster Connectivity (SCC) enabled
+  ✅ All traffic through Azure backbone
+  ✅ Private endpoints for all services
   ✅ Network isolation with NSGs
+  ✅ Storage firewall enabled
+  ✅ SCC enabled for Databricks
 
 ${YELLOW}📋 ACCESS INSTRUCTIONS:${NC}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 1. ${BLUE}Wait for Bastion:${NC}
    Check status in Azure Portal (5-10 minutes typical)
 
 2. ${BLUE}Access Jump VM:${NC}
-   Portal → Resource Groups → ${GREEN}$RG_NAME${NC} → ${GREEN}$VM_NAME${NC}
+   Portal → Resource Groups → ${GREEN}$RESOURCE_GROUP${NC} → ${GREEN}$VM_NAME${NC}
    Click "Connect" → Select "Bastion"
 
 3. ${BLUE}Login Credentials:${NC}
@@ -1072,149 +1433,9 @@ ${YELLOW}📋 ACCESS INSTRUCTIONS:${NC}
    Navigate to: ${GREEN}https://$WORKSPACE_URL${NC}
    Login with Azure AD credentials
 
-${YELLOW}⚠️ IMPORTANT NOTES:${NC}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Databricks is ONLY accessible from within the VNet
-• No public internet access is possible (by design)
-• Change the Jump VM password immediately
-• Stop VM when not in use to save costs
-• Monitor costs in Azure Cost Management
+5. ${BLUE}Mount Storage:${NC}
+   Use the script: ${GREEN}databricks-mount-config.py${NC}
+   Client Secret: ${YELLOW}[Stored Separately - Check Output Above]${NC}
 
-${BLUE}💰 COST OPTIMIZATION TIPS:${NC}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-• Deallocate Jump VM when not in use:
-  ${GREEN}az vm deallocate --resource-group $RG_NAME --name $VM_NAME${NC}
-• Delete Bastion if not needed long-term (saves ~\$140/month)
-• Use auto-shutdown policies for VMs
-• Consider Spot instances for non-production
-
-EOF
-
-# Save detailed configuration file
-CONFIG_FILE="databricks-india-deployment-$(date +%Y%m%d-%H%M%S).txt"
-cat > $CONFIG_FILE << EOF
-AZURE DATABRICKS PRIVATE NETWORK DEPLOYMENT - CENTRAL INDIA
-============================================================
-Deployment Date: $(date)
-Deployed By: $(az account show --query user.name -o tsv)
-
-SUBSCRIPTION DETAILS:
---------------------
-Name: $SUBSCRIPTION_NAME
-ID: $SUBSCRIPTION_ID
-
-RESOURCE CONFIGURATION:
------------------------
-Resource Group: $RG_NAME
-Location: $LOCATION
-
-NETWORK ARCHITECTURE:
---------------------
-Virtual Network: $VNET_NAME
-Address Space: $VNET_PREFIX
-
-Subnets:
-1. Databricks Host: snet-databricks-host ($SUBNET_HOST)
-   - Purpose: Spark driver nodes
-   - Delegated to: Microsoft.Databricks/workspaces
-   
-2. Databricks Container: snet-databricks-container ($SUBNET_CONTAINER)
-   - Purpose: Spark executor nodes
-   - Delegated to: Microsoft.Databricks/workspaces
-   
-3. Private Endpoints: snet-private-endpoints ($SUBNET_PE)
-   - Purpose: Frontend private endpoints
-   - Private endpoint policies disabled
-   
-4. Backend Private Endpoint: snet-backend-private-endpoint ($SUBNET_BACKEND_PE)
-   - Purpose: SCC backend connectivity
-   - Private endpoint policies disabled
-   
-5. Jump VM: snet-jumpbox ($SUBNET_JUMPBOX)
-   - Purpose: Administrative access
-   
-6. Bastion: AzureBastionSubnet ($SUBNET_BASTION)
-   - Purpose: Secure RDP/SSH gateway
-
-DATABRICKS WORKSPACE:
---------------------
-Name: $WORKSPACE_NAME
-URL: https://$WORKSPACE_URL
-SKU: Premium
-Public Network Access: Disabled
-No Public IP: Enabled
-SCC: Enabled
-
-PRIVATE ENDPOINTS:
------------------
-1. UI/API: pe-databricks-ui-api
-   - IP: $UI_API_IP
-   
-2. Authentication: pe-databricks-auth
-   - IP: $AUTH_IP
-   
-3. Backend: pe-databricks-backend (SCC)
-
-ACCESS INFRASTRUCTURE:
----------------------
-Jump VM: $VM_NAME
-- Username: $VM_ADMIN_USER
-- Password: $VM_ADMIN_PASSWORD
-- Size: ${VM_SIZE_USED:-Not created}
-
-Bastion: $BASTION_NAME
-- Public IP: pip-bastion
-
-DNS CONFIGURATION:
------------------
-Private DNS Zone: privatelink.azuredatabricks.net
-Records:
-- $WORKSPACE_HOST -> $UI_API_IP
-- adb-auth-$WORKSPACE_HOST -> $AUTH_IP
-
-SECURITY CONFIGURATION:
-----------------------
-Network Security Group: nsg-databricks
-- Applied to Databricks subnets
-- No default Databricks rules (SCC mode)
-
-NEXT STEPS:
-----------
-1. Wait for Bastion deployment to complete
-2. Connect to Jump VM via Bastion
-3. Access Databricks workspace from Jump VM
-4. Configure workspace settings (users, clusters, etc.)
-5. Implement additional security measures as needed
-
-TROUBLESHOOTING:
----------------
-If unable to access Databricks:
-1. Verify Bastion is deployed (Status: Succeeded)
-2. Check VM is running
-3. Verify DNS resolution from Jump VM
-4. Check private endpoint connection status
-5. Ensure NSG rules allow required traffic
-
-CLEANUP COMMANDS:
-----------------
-To delete everything:
-az group delete --name $RG_NAME --yes
-
-To stop Jump VM (save costs):
-az vm deallocate --resource-group $RG_NAME --name $VM_NAME
-
-To restart Jump VM:
-az vm start --resource-group $RG_NAME --name $VM_NAME
-============================================================
-EOF
-
-print_status "Configuration saved to: ${GREEN}$CONFIG_FILE${NC}"
-print_status "Deployment completed successfully! 🎉"
-
-# Final reminder
-echo ""
-print_warning "Remember to:"
-echo "  1. Change the default password for Jump VM"
-echo "  2. Configure auto-shutdown for cost savings"
-echo "  3. Review NSG rules for your security requirements"
-echo "  4. Set up monitoring and alerts"
+${YELLOW}⚠️  IMPORTANT NOTES:${NC}
+━━━━━━━━━━━━━━━━━━━━
