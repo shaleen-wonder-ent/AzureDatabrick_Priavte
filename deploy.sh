@@ -1,11 +1,11 @@
 #!/bin/bash
 
 #############################################
-# Azure Databricks Private Network Deployment
+# Azure Databricks Private Network Deployment with ADLS Gen2
 # Quick Deploy Script - Central India Edition
 #
 # This script provides a simple wrapper to execute the
-# main deployment script with proper configuration.
+# main deployment script with ADLS Gen2 integration.
 #
 # Usage:
 #   ./deploy.sh
@@ -49,12 +49,12 @@ print_header() {
 # Display banner
 cat << 'EOF'
 ╔══════════════════════════════════════════════════════════════╗
-║          Azure Databricks Private Network Deployment        ║
+║    Azure Databricks Private Network + ADLS Gen2 Deployment  ║
 ║                     Central India Edition                   ║
 ╚══════════════════════════════════════════════════════════════╝
 EOF
 
-print_header "Azure Databricks Private Deployment - Quick Start"
+print_header "Azure Databricks + ADLS Gen2 Private Deployment - Quick Start"
 
 # Check if main script exists
 MAIN_SCRIPT="./scripts/setup-databricks-centralindia-complete-documented.sh"
@@ -95,11 +95,14 @@ echo ""
 print_warning "This deployment will create Azure resources that incur costs!"
 print_info "The deployment includes:"
 echo "  • Azure Databricks Workspace (Premium SKU)"
+echo "  • ADLS Gen2 Storage Account with hierarchical namespace"
+echo "  • Data Lake containers (raw, processed, curated, sandbox, archive)"
+echo "  • Service Principal for secure storage authentication"
 echo "  • Virtual Network with multiple subnets"
-echo "  • Private Endpoints"
+echo "  • Private Endpoints for Databricks and Storage"
 echo "  • Virtual Machine (Jump VM)"
 echo "  • Azure Bastion"
-echo "  • Storage accounts and other supporting resources"
+echo "  • Private DNS zones and other supporting resources"
 echo ""
 
 read -p "Do you want to continue with the deployment? (y/N): " -n 1 -r
@@ -115,8 +118,14 @@ print_status "Making deployment script executable..."
 chmod +x "$MAIN_SCRIPT"
 
 # Execute the main deployment script
-print_header "Starting Azure Databricks Private Network Deployment"
-print_info "This process typically takes 15-20 minutes..."
+print_header "Starting Azure Databricks + ADLS Gen2 Private Network Deployment"
+print_info "This process typically takes 20-25 minutes..."
+print_info "Components being deployed:"
+echo "  • Resource Group and Virtual Network (2-3 minutes)"
+echo "  • Databricks Workspace with Private Endpoints (10-15 minutes)"
+echo "  • ADLS Gen2 Storage with Private Endpoints (3-5 minutes)"
+echo "  • Service Principal and Permissions (1-2 minutes)"
+echo "  • Jump VM and Azure Bastion (5-10 minutes)"
 print_warning "Please do not interrupt the deployment process"
 
 echo ""
