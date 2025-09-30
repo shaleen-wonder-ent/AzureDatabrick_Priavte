@@ -1,6 +1,6 @@
-# Azure Databricks Private Network Deployment Guide
+# Azure Databricks Private Network Deployment Guide with ADLS Gen2
 
-## Complete Implementation with Secure Cluster Connectivity (SCC) - Central India Edition
+## Complete Implementation with Secure Cluster Connectivity (SCC) and ADLS Gen2 - Central India Edition
 
 ### Table of Contents
 1. [Prerequisites](#prerequisites)
@@ -13,12 +13,16 @@
 8. [Phase 6: Frontend Private Endpoints](#phase-6-frontend-private-endpoints)
 9. [Phase 7: Backend Private Endpoint](#phase-7-backend-private-endpoint)
 10. [Phase 8: Private DNS Configuration](#phase-8-private-dns-configuration)
-11. [Phase 9: Jump VM Creation](#phase-9-jump-vm-creation)
-12. [Phase 10: Azure Bastion](#phase-10-azure-bastion)
-13. [Phase 11: Validation](#phase-11-validation)
-14. [Access Instructions](#access-instructions)
-15. [Cost Optimization](#cost-optimization)
-16. [Troubleshooting](#troubleshooting)
+11. [Phase 9: ADLS Gen2 Storage Account](#phase-9-adls-gen2-storage-account)
+12. [Phase 10: Storage Private Endpoints](#phase-10-storage-private-endpoints)
+13. [Phase 11: Service Principal Setup](#phase-11-service-principal-setup)
+14. [Phase 12: Jump VM Creation](#phase-12-jump-vm-creation)
+15. [Phase 13: Azure Bastion](#phase-13-azure-bastion)
+16. [Phase 14: Validation](#phase-14-validation)
+17. [Access Instructions](#access-instructions)
+18. [ADLS Gen2 Usage Examples](#adls-gen2-usage-examples)
+19. [Cost Optimization](#cost-optimization)
+20. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -65,6 +69,12 @@ export VNET_PREFIX="10.0.0.0/16"
 # Databricks Workspace Name - Must be globally unique
 export WORKSPACE_NAME="dbw-private-india-$(date +%s)"
 
+# ADLS Gen2 Storage Account Name - Must be globally unique
+export STORAGE_ACCOUNT_NAME="adls$(date +%s)"
+
+# Storage Containers - Following data lake best practices
+export STORAGE_CONTAINERS=("raw" "processed" "curated" "sandbox" "archive")
+
 # Subnet Configurations
 export SUBNET_HOST="10.0.1.0/24"
 export SUBNET_CONTAINER="10.0.2.0/24"
@@ -84,7 +94,7 @@ export VM_ADMIN_PASSWORD="SecurePass@India2025!"  # CHANGE THIS!
 
 ## Architecture Overview
 
-This script creates a completely private Azure Databricks environment with no public internet exposure. All access is through private endpoints and secure channels only.
+This script creates a completely private Azure Databricks environment with ADLS Gen2 data lake storage, with no public internet exposure. All access is through private endpoints and secure channels only.
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -110,6 +120,19 @@ This script creates a completely private Azure Databricks environment with no pu
 │  │  │ Jump VM Subnet   │    │ Bastion Subnet   │     │    │
 │  │  │ (10.0.5.0/24)    │    │ (10.0.6.0/26)    │     │    │
 │  │  └──────────────────┘    └──────────────────┘     │    │
+│  │                                                     │    │
+│  │  ┌─────────────────────────────────────────────┐   │    │
+│  │  │          ADLS Gen2 Storage Account          │   │    │
+│  │  │  Storage PE Subnet (10.0.7.0/24)           │   │    │
+│  │  │  ┌─────────────┐    ┌─────────────────┐    │   │    │
+│  │  │  │ Containers  │    │ Private         │    │   │    │
+│  │  │  │ • raw       │    │ Endpoints       │    │   │    │
+│  │  │  │ • processed │    │ • Blob PE       │    │   │    │
+│  │  │  │ • curated   │    │ • DFS PE        │    │   │    │
+│  │  │  │ • sandbox   │    │                 │    │   │    │
+│  │  │  │ • archive   │    │                 │    │   │    │
+│  │  │  └─────────────┘    └─────────────────┘    │   │    │
+│  │  └─────────────────────────────────────────────┘   │    │
 │  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -117,7 +140,16 @@ This script creates a completely private Azure Databricks environment with no pu
 ### Components Created:
 1. **Resource Group** - Logical container for all resources
 2. **Virtual Network** - Private network infrastructure
-3. **6 Subnets** - Network segmentation for different components
+3. **7 Subnets** - Network segmentation for different components
+4. **Network Security Groups** - Firewall rules
+5. **Databricks Workspace** - The main analytics platform
+6. **ADLS Gen2 Storage Account** - Data lake with hierarchical namespace
+7. **Storage Containers** - Data organization (raw, processed, curated, sandbox, archive)
+8. **Private Endpoints** - Secure connectivity points (Databricks + Storage)
+9. **Service Principal** - Secure authentication for storage access
+10. **Private DNS Zones** - Name resolution for private access
+11. **Jump VM** - Access point within the VNet
+12. **Azure Bastion** - Secure RDP/SSH gateway
 4. **Network Security Groups** - Firewall rules
 5. **Databricks Workspace** - The main analytics platform
 6. **Private Endpoints** - Secure connectivity points
@@ -131,6 +163,9 @@ This script creates a completely private Azure Databricks environment with no pu
 - ✅ Private endpoints for all connections
 - ✅ Network isolation with NSGs
 - ✅ Secure Cluster Connectivity (SCC) enabled
+- ✅ ADLS Gen2 storage firewall (public access disabled)
+- ✅ Service principal authentication for storage
+- ✅ Private DNS zones for all endpoints
 
 ---
 
@@ -216,7 +251,16 @@ az network vnet subnet create \
     --name "snet-jumpbox" \
     --address-prefix $SUBNET_JUMPBOX
 
-# 6. Bastion Subnet (MUST be named "AzureBastionSubnet")
+# 6. Storage Private Endpoints Subnet
+export SUBNET_STORAGE_PE="10.0.7.0/24"
+az network vnet subnet create \
+    --resource-group $RG_NAME \
+    --vnet-name $VNET_NAME \
+    --name "snet-storage-private-endpoints" \
+    --address-prefix $SUBNET_STORAGE_PE \
+    --disable-private-endpoint-network-policies true
+
+# 7. Bastion Subnet (MUST be named "AzureBastionSubnet")
 az network vnet subnet create \
     --resource-group $RG_NAME \
     --vnet-name $VNET_NAME \
@@ -540,7 +584,182 @@ az network private-dns record-set a add-record \
 
 ---
 
-## Phase 9: Jump VM Creation
+## Phase 9: ADLS Gen2 Storage Account
+
+Create Azure Data Lake Storage Gen2 for data storage with hierarchical namespace.
+
+### Create Storage Account
+
+```bash
+# Generate unique storage account name
+STORAGE_ACCOUNT_NAME=$(echo "$STORAGE_ACCOUNT_NAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]//g' | cut -c1-24)
+
+# Create ADLS Gen2 storage account
+az storage account create \
+    --resource-group $RG_NAME \
+    --name $STORAGE_ACCOUNT_NAME \
+    --location $LOCATION \
+    --sku Standard_LRS \
+    --kind StorageV2 \
+    --enable-hierarchical-namespace true \
+    --public-network-access Disabled \
+    --allow-blob-public-access false
+```
+
+### Create Storage Containers
+
+```bash
+# Get storage account key
+STORAGE_KEY=$(az storage account keys list \
+    --resource-group $RG_NAME \
+    --account-name $STORAGE_ACCOUNT_NAME \
+    --query '[0].value' -o tsv)
+
+# Create data lake containers
+for container in "${STORAGE_CONTAINERS[@]}"; do
+    az storage container create \
+        --account-name $STORAGE_ACCOUNT_NAME \
+        --account-key $STORAGE_KEY \
+        --name $container
+done
+```
+
+**Purpose:**
+- Provides scalable data lake storage
+- Hierarchical namespace for file system operations
+- Containers follow data lake best practices
+- Private access only through VNet
+
+---
+
+## Phase 10: Storage Private Endpoints
+
+Create private endpoints for ADLS Gen2 Blob and DFS services.
+
+### Get Storage Account Resource ID
+
+```bash
+STORAGE_ID=$(az storage account show \
+    --resource-group $RG_NAME \
+    --name $STORAGE_ACCOUNT_NAME \
+    --query id -o tsv)
+```
+
+### Create Blob Private Endpoint
+
+```bash
+az network private-endpoint create \
+    --resource-group $RG_NAME \
+    --name "pe-storage-blob" \
+    --vnet-name $VNET_NAME \
+    --subnet "snet-storage-private-endpoints" \
+    --private-connection-resource-id $STORAGE_ID \
+    --group-id "blob" \
+    --connection-name "connection-storage-blob" \
+    --location $LOCATION
+```
+
+### Create DFS Private Endpoint
+
+```bash
+az network private-endpoint create \
+    --resource-group $RG_NAME \
+    --name "pe-storage-dfs" \
+    --vnet-name $VNET_NAME \
+    --subnet "snet-storage-private-endpoints" \
+    --private-connection-resource-id $STORAGE_ID \
+    --group-id "dfs" \
+    --connection-name "connection-storage-dfs" \
+    --location $LOCATION
+```
+
+### Configure Storage DNS Records
+
+```bash
+# Create private DNS zones for storage
+az network private-dns zone create \
+    --resource-group $RG_NAME \
+    --name "privatelink.blob.core.windows.net"
+
+az network private-dns zone create \
+    --resource-group $RG_NAME \
+    --name "privatelink.dfs.core.windows.net"
+
+# Link zones to VNet
+az network private-dns link vnet create \
+    --resource-group $RG_NAME \
+    --zone-name "privatelink.blob.core.windows.net" \
+    --name "link-storage-blob-vnet" \
+    --virtual-network $VNET_NAME \
+    --registration-enabled false
+
+az network private-dns link vnet create \
+    --resource-group $RG_NAME \
+    --zone-name "privatelink.dfs.core.windows.net" \
+    --name "link-storage-dfs-vnet" \
+    --virtual-network $VNET_NAME \
+    --registration-enabled false
+```
+
+**Purpose:**
+- Enables private access to storage services
+- Both Blob and DFS endpoints for different access patterns
+- Private DNS resolution for storage endpoints
+
+---
+
+## Phase 11: Service Principal Setup
+
+Create and configure service principal for Databricks to access ADLS Gen2.
+
+### Create Service Principal
+
+```bash
+# Create service principal
+SP_NAME="sp-databricks-adls-${STORAGE_ACCOUNT_NAME}"
+SP_DETAILS=$(az ad sp create-for-rbac \
+    --name $SP_NAME \
+    --role "Storage Blob Data Contributor" \
+    --scopes "/subscriptions/$SUBSCRIPTION_ID/resourceGroups/$RG_NAME/providers/Microsoft.Storage/storageAccounts/$STORAGE_ACCOUNT_NAME")
+
+# Extract details
+SP_APP_ID=$(echo $SP_DETAILS | jq -r '.appId')
+SP_PASSWORD=$(echo $SP_DETAILS | jq -r '.password')
+SP_TENANT=$(echo $SP_DETAILS | jq -r '.tenant')
+```
+
+### Save Configuration for Databricks
+
+```bash
+# Create configuration file for Databricks mounting
+cat > databricks-adls-config.json << EOF
+{
+    "storage_account_name": "$STORAGE_ACCOUNT_NAME",
+    "service_principal": {
+        "application_id": "$SP_APP_ID",
+        "secret": "$SP_PASSWORD",
+        "tenant_id": "$SP_TENANT"
+    },
+    "containers": ["raw", "processed", "curated", "sandbox", "archive"],
+    "mount_points": {
+        "/mnt/raw": "abfss://raw@${STORAGE_ACCOUNT_NAME}.dfs.core.windows.net/",
+        "/mnt/processed": "abfss://processed@${STORAGE_ACCOUNT_NAME}.dfs.core.windows.net/",
+        "/mnt/curated": "abfss://curated@${STORAGE_ACCOUNT_NAME}.dfs.core.windows.net/",
+        "/mnt/sandbox": "abfss://sandbox@${STORAGE_ACCOUNT_NAME}.dfs.core.windows.net/",
+        "/mnt/archive": "abfss://archive@${STORAGE_ACCOUNT_NAME}.dfs.core.windows.net/"
+    }
+}
+EOF
+```
+
+**Purpose:**
+- Enables secure authentication from Databricks to storage
+- Provides appropriate permissions for data access
+- Supports automated mounting of storage containers
+
+---
+
+## Phase 12: Jump VM Creation
 
 Create a VM within the VNet for accessing the private Databricks workspace.
 
@@ -600,7 +819,7 @@ az vm run-command invoke \
 
 ---
 
-## Phase 10: Azure Bastion
+## Phase 13: Azure Bastion
 
 Create secure RDP/SSH access to the Jump VM.
 
@@ -635,7 +854,7 @@ az network bastion create \
 
 ---
 
-## Phase 11: Validation
+## Phase 14: Validation
 
 Verify all components are properly configured.
 
@@ -702,6 +921,97 @@ Check status in Azure Portal (typically 5-10 minutes).
 
 ---
 
+## ADLS Gen2 Usage Examples
+
+Once your Databricks workspace is connected to ADLS Gen2, you can use the pre-configured mount points to access your data lake.
+
+### Python Examples
+
+```python
+# Read data from raw container
+df = spark.read.option("header", "true").csv("/mnt/raw/sample-data/")
+df.show()
+
+# Process and write to processed container
+processed_df = df.filter(df.status == "active")
+processed_df.write.mode("overwrite").parquet("/mnt/processed/cleaned-data/")
+
+# Create curated dataset
+curated_df = processed_df.groupBy("category").count()
+curated_df.write.mode("overwrite").parquet("/mnt/curated/category-summary/")
+
+# Use sandbox for experimentation
+df.sample(0.1).write.mode("overwrite").parquet("/mnt/sandbox/sample-data/")
+```
+
+### Scala Examples
+
+```scala
+// Read from ADLS Gen2
+val df = spark.read.option("header", "true").csv("/mnt/raw/sample-data/")
+
+// Process and write to processed layer
+df.filter($"status" === "active")
+  .write
+  .mode("overwrite")
+  .parquet("/mnt/processed/cleaned-data/")
+
+// Aggregate and save to curated
+df.groupBy($"category").count()
+  .write
+  .mode("overwrite")
+  .parquet("/mnt/curated/category-summary/")
+```
+
+### SQL Examples
+
+```sql
+-- Create table pointing to ADLS Gen2
+CREATE TABLE raw_data
+USING PARQUET
+LOCATION '/mnt/raw/sample-data/'
+
+-- Query data across containers
+SELECT category, COUNT(*) as count
+FROM raw_data
+WHERE status = 'active'
+GROUP BY category
+
+-- Create processed table
+CREATE TABLE processed.clean_data
+USING PARQUET
+LOCATION '/mnt/processed/cleaned-data/'
+AS SELECT * FROM raw_data WHERE status = 'active'
+```
+
+### Data Lake Best Practices
+
+1. **Raw Layer** (`/mnt/raw/`): Store data in original format
+   - Partition by date: `/mnt/raw/dataset/year=2024/month=01/day=15/`
+   - Preserve original structure and formats
+
+2. **Processed Layer** (`/mnt/processed/`): Store cleaned and validated data
+   - Apply data quality rules
+   - Standardize formats (prefer Parquet for analytics)
+   - Add metadata columns (processing_date, source_system)
+
+3. **Curated Layer** (`/mnt/curated/`): Store business-ready datasets
+   - Aggregated and enriched data
+   - Dimensional models and fact tables
+   - Optimized for consumption
+
+4. **Sandbox** (`/mnt/sandbox/`): Experimental workspace
+   - Data science experiments
+   - Temporary datasets
+   - Testing new processing logic
+
+5. **Archive** (`/mnt/archive/`): Long-term storage
+   - Historical data retention
+   - Compliance and audit requirements
+   - Cold storage for cost optimization
+
+---
+
 ## Cost Optimization
 
 ### Daily Operations
@@ -718,6 +1028,8 @@ az vm start --resource-group $RG_NAME --name $VM_NAME
 - **Delete Bastion:** Save ~$140/month (recreate when needed)
 - **Use Spot instances:** Save 60-90% on compute costs
 - **Auto-shutdown policies:** Automate cost savings
+- **ADLS Gen2 Lifecycle Management:** Automatically move data to cool/archive tiers
+- **Storage Optimization:** Use appropriate storage tiers for each container
 
 ### Monitor Costs
 ```bash
@@ -758,6 +1070,20 @@ az network private-endpoint show \
 **Check 4: DNS Resolution (from Jump VM)**
 ```bash
 nslookup $WORKSPACE_URL
+nslookup ${STORAGE_ACCOUNT_NAME}.blob.core.windows.net
+nslookup ${STORAGE_ACCOUNT_NAME}.dfs.core.windows.net
+```
+
+**Check 5: ADLS Gen2 Access**
+```bash
+# Verify storage account exists and is accessible
+az storage account show --resource-group $RG_NAME --name $STORAGE_ACCOUNT_NAME
+
+# Check storage containers
+az storage container list --account-name $STORAGE_ACCOUNT_NAME --auth-mode login
+
+# Verify service principal
+az ad sp show --id $SP_APP_ID
 ```
 
 ### Common Issues and Solutions
@@ -769,6 +1095,8 @@ nslookup $WORKSPACE_URL
 | DNS not resolving | Verify private DNS zone is linked to VNet |
 | Workspace not accessible | Check private endpoint connection status |
 | Cluster won't start | Verify subnet delegation and NSG rules |
+| Storage access denied | Check service principal permissions and private endpoints |
+| Mount failures in Databricks | Verify service principal credentials and storage firewall |
 
 ### Complete Cleanup
 

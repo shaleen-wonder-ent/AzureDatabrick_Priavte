@@ -38,16 +38,23 @@ For detailed manual instructions, see our comprehensive [Setup Guide](./setup.md
 │  │            VIRTUAL NETWORK (10.0.0.0/16)            │    │
 │  │                                                     │    │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐ │    │
-│  │  │ Databricks  │  │ ADLS Gen2   │  │ Private     │ │    │
-│  │  │ Subnets     │  │ Storage     │  │ Endpoints   │ │    │
-│  │  │             │  │ • Blob PE   │  │ • DB UI/API │ │    │
-│  │  │             │  │ • DFS PE    │  │ • Auth      │ │    │
+│  │  │ Databricks  │  │ Private     │  │ Jump VM     │ │    │
+│  │  │ Subnets     │  │ Endpoints   │  │ & Bastion   │ │    │
+│  │  │             │  │ • DB UI/API │  │             │ │    │
+│  │  │             │  │ • Auth      │  │             │ │    │
 │  │  └─────────────┘  └─────────────┘  └─────────────┘ │    │
 │  │                                                     │    │
-│  │  ┌─────────────┐  ┌─────────────┐                  │    │
-│  │  │ Jump VM     │  │ Azure       │                  │    │
-│  │  │ & Bastion   │  │ Bastion     │                  │    │
-│  │  └─────────────┘  └─────────────┘                  │    │
+│  │  ┌─────────────────────────────────────────────┐   │    │
+│  │  │          ADLS Gen2 Storage Account          │   │    │
+│  │  │  ┌─────────────┐    ┌─────────────────┐    │   │    │
+│  │  │  │ Containers  │    │ Private         │    │   │    │
+│  │  │  │ • raw       │    │ Endpoints       │    │   │    │
+│  │  │  │ • processed │    │ • Blob PE       │    │   │    │
+│  │  │  │ • curated   │    │ • DFS PE        │    │   │    │
+│  │  │  │ • sandbox   │    │                 │    │   │    │
+│  │  │  │ • archive   │    │                 │    │   │    │
+│  │  │  └─────────────┘    └─────────────────┘    │   │    │
+│  │  └─────────────────────────────────────────────┘   │    │
 │  └─────────────────────────────────────────────────────┘    │
 └─────────────────────────────────────────────────────────────┘
 ```
