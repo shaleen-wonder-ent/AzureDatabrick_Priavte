@@ -13,16 +13,38 @@ This repository provides both automated and manual deployment options for settin
 
 ### ⚡ Automated Deployment (Recommended)
 
+**Option 1: Full Deployment (Local Machine/WSL)**
 ```bash
 # Clone the repository
-git clone https://github.com/shaleen-wonder-ent/AzDatabricks_Private_deployment.git
-cd AzDatabricks_Private_deployment
+git clone https://github.com/shaleen-wonder-ent/AzureDatabrick_Priavte.git
+cd AzureDatabrick_Priavte
 
 # Make the script executable
-chmod +x setup-databricks-centralindia-complete-documented.sh
+chmod +x scripts/setup-databricks-centralindia-complete-documented.sh
 
 # Run the automated deployment
-./setup-databricks-centralindia-complete-documented.sh
+./scripts/setup-databricks-centralindia-complete-documented.sh
+```
+
+**Option 2: Quick Deploy (ARM Template)**
+```bash
+# For Azure Cloud Shell or when bash script times out
+chmod +x quick-deploy.sh
+./quick-deploy.sh
+```
+
+**Option 3: PowerShell Deployment (Windows)**
+```powershell
+# Run from PowerShell on Windows
+.\Deploy-Databricks.ps1
+```
+
+**Option 4: Cloud Shell with Session Management**
+```bash
+# Use tmux to prevent timeout issues
+tmux new-session -d -s databricks-deploy
+tmux attach-session -t databricks-deploy
+# Then run your chosen deployment method inside tmux
 ```
 
 ### 📖 Manual Step-by-Step Deployment
@@ -233,10 +255,44 @@ az vm start --resource-group rg-databricks-private-india --name vm-jumpbox-india
 
 | Issue | Solution |
 |-------|----------|
+| **Azure Cloud Shell timeout** | Use tmux/screen sessions or local deployment |
 | **Bastion deployment slow** | Wait 10-15 minutes, check Azure service health |
 | **VM creation fails** | Try different VM sizes or use Spot instances |
 | **DNS not resolving** | Verify private DNS zone VNet link |
 | **Workspace inaccessible** | Check private endpoint connection status |
+| **Storage access denied** | Verify service principal permissions |
+| **Script permission denied** | Run `chmod +x script-name.sh` first |
+
+### Execution Troubleshooting
+
+**If Azure Cloud Shell times out:**
+```bash
+# Use tmux for persistent sessions
+tmux new-session -d -s databricks-deploy
+tmux attach-session -t databricks-deploy
+
+# If connection drops, reconnect:
+tmux attach-session -t databricks-deploy
+```
+
+**For Windows PowerShell execution policy issues:**
+```powershell
+# Allow script execution
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Then run the PowerShell script
+.\Deploy-Databricks.ps1
+```
+
+**For local machine deployment:**
+```bash
+# Ensure you have the prerequisites
+az --version  # Azure CLI
+git --version # Git for cloning
+
+# Install WSL on Windows if needed
+wsl --install
+```
 
 ### Validation Commands
 
